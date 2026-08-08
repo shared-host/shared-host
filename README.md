@@ -1,13 +1,9 @@
-<p align="center">
-  <img src="assets/logo.png" alt="Shared-Host Logo" width="600"/>
-</p>
-
 # shared-host
 
 A high-performance, ultra-low-latency Inter-Process Communication (IPC) library written in C. `shared-host` leverages shared memory ring buffers for fast, reliable message passing between processes.
 
 Basically a faster localhost-like communication method.
-g it
+
 ---
 
 ## Ai Usage Guidelines
@@ -19,50 +15,101 @@ g it
 
 ## Performance Statistics
 
+### 1. High-Throughput & Bandwidth Benchmarks
+
+#### FAST Mode (Spin-Lock Polling)
 ```text
 =================================================================
-     STANDARD (write) vs ZERO-COPY (zc_write/zc_send) [FAST]       
+         SHARED-HOST COMPREHENSIVE SUITE [FAST / SPIN-LOCK]        
 =================================================================
 
---- Phase 1: Latency ---
- Metric          |     STANDARD |    ZERO-COPY |     Delta
-------------------+--------------+--------------+-----------
- Avg Latency     |    171.7 ns |    154.2 ns |  -10.2%
- P99 Latency     |    900.0 ns |   1100.0 ns |  +22.2%
+[PHASE 1] Running Latency & Jitter Distribution (1000000 samples)...
+  -> Min Latency:    0.0 ns
+  -> Avg Latency:    46.9 ns
+  -> P50 (Median):   0.0 ns
+  -> P99 Latency:    900.0 ns
+  -> P99.9 Latency:  1300.0 ns
+  -> Max Latency:    116800.0 ns
 
---- Phase 2: Throughput Sweep ---
- Payload |   STANDARD BW |  ZERO-COPY BW | Throughput Gain
----------+---------------+---------------+----------------
-     64B |   803.2 MB/s |  1862.2 MB/s |     +131.8%
-    256B |  1346.7 MB/s |  2138.7 MB/s |      +58.8%
-   1024B |  1893.8 MB/s |  2911.3 MB/s |      +53.7%
-   4096B |  5577.9 MB/s |  7172.4 MB/s |      +28.6%
-  16384B | 10835.7 MB/s | 13388.3 MB/s |      +23.6%
-  65536B | 10807.0 MB/s | 13116.6 MB/s |      +21.4%
+[PHASE 2] Executing Payload Size Sweep (50000 ops per size)...
+ Payload |    Throughput |   Payload BW |      Wire BW |   Avg Latency
+---------+---------------+--------------+--------------+--------------
+     64B |  22068235/s |  1346.94 MB/s |  1683.67 MB/s |     46.9 ns
+    256B |   8581620/s |  2095.12 MB/s |  2226.07 MB/s |    116.5 ns
+   1024B |   3059296/s |  2987.59 MB/s |  3034.28 MB/s |    326.9 ns
+   4096B |   1027967/s |  4015.50 MB/s |  4031.18 MB/s |    972.8 ns
+  16384B |    239857/s |  3747.77 MB/s |  3751.43 MB/s |   4169.1 ns
+  65536B |    212959/s | 13309.95 MB/s | 13313.20 MB/s |   4695.8 ns
 
---- Phase 3: Integrity ---
- STANDARD: PASSED  |  ZERO-COPY: PASSED
+[PHASE 3] Running Variable-Size Integrity & Boundary Wrap Test (100000 ops)...
+  -> Sequence Corruptions:     0
+  -> Byte Content Corruptions: 0
+  -> Final Status:             PASSED (100% Valid)
+
+=================================================================
 ```
 
-### Performance Summary
+#### SLOW Mode (Win32 Event Polling / Signaling)
+```text
+=================================================================
+        SHARED-HOST COMPREHENSIVE SUITE [SLOW / EVENT-POLLING]    
+=================================================================
 
-| Metric / Payload | Standard `write` | Zero-Copy `zc_write` / `zc_send` |
-| :--- | :--- | :--- |
-| **Average Latency (Phase 1)** | 171.7 ns (P50: 0.0 ns, P99: 900.0 ns) | **154.2 ns** (P50: 0.0 ns, P99: 1100.0 ns) |
-| **Peak Throughput (64B)** | 13,159,522 ops/sec (76.0 ns avg) | **30,509,943 ops/sec** (32.8 ns avg) |
-| **Peak Bandwidth (16KB - 64KB)** | ~10.8 GB/s Payload | **>13.5 GB/s** Payload |
-| **Data Integrity (Phase 3)** | **100% Valid** (0 corruptions) | **100% Valid** (0 corruptions) |
+[PHASE 1] Running Latency & Jitter Distribution (1000000 samples)...
+  -> Min Latency:    0.0 ns
+  -> Avg Latency:    345.4 ns
+  -> P50 (Median):   100.0 ns
+  -> P99 Latency:    4400.0 ns
+  -> P99.9 Latency:  8100.0 ns
+  -> Max Latency:    246800.0 ns
+
+[PHASE 2] Executing Payload Size Sweep (50000 ops per size)...
+ Payload |    Throughput |   Payload BW |      Wire BW |   Avg Latency
+---------+---------------+--------------+--------------+--------------
+     64B |  20340086/s |  1241.46 MB/s |  1551.83 MB/s |     49.2 ns
+    256B |   3358477/s |   819.94 MB/s |   871.19 MB/s |    434.0 ns
+   1024B |   1404096/s |  1371.19 MB/s |  1392.61 MB/s |    780.2 ns
+   4096B |    525950/s |  2054.49 MB/s |  2062.52 MB/s |   1901.3 ns
+  16384B |    230770/s |  3605.78 MB/s |  3609.30 MB/s |   4333.3 ns
+  65536B |    148696/s |  9293.48 MB/s |  9295.75 MB/s |   6725.1 ns
+
+[PHASE 3] Running Variable-Size Integrity & Boundary Wrap Test (100000 ops)...
+  -> Sequence Corruptions:     0
+  -> Byte Content Corruptions: 0
+  -> Final Status:             PASSED (100% Valid)
+
+=================================================================
+```
+
+### 2. Mode Comparison Summary
+
+| Connection Mode | Feature | Avg Latency | Peak Throughput (64B) | Peak Bandwidth (64KB) | Integrity |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **FAST (Zero-Copy)** | Spin-Lock Polling | **46.9 ns** (P99: 900.0 ns) | **22.06 Million ops/sec** | **13.31 GB/s** | **PASSED (100% Valid)** |
+| **FAST (Standard)** | Spin-Lock Polling | 67.6 ns (P99: 1000.0 ns) | 15.23 Million ops/sec | 11.21 GB/s | **PASSED (100% Valid)** |
+| **SLOW (Zero-Copy)** | Event-Based Polling | **345.4 ns** (P99: 4400.0 ns) | **20.34 Million ops/sec** | **9.29 GB/s** | **PASSED (100% Valid)** |
+| **SLOW (Standard)** | Event-Based Polling | 362.8 ns (P99: 5600.0 ns) | 15.72 Million ops/sec | 9.79 GB/s | **PASSED (100% Valid)** |
+
+### 3. Per-Function Execution Times (Individual C Function Latencies)
+
+| Function | Mode / Type | FAST (Spin-Lock) | SLOW (Event-Polling) | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `claim_from_shared_host_connection` | Zero-Copy Writer | **39.1 ns** | **39.1 ns** | Claims shared memory buffer for writing |
+| `commit_to_shared_host_connection` | Zero-Copy Writer | **17.9 ns** | **305.3 ns** (Signals Win32 Event) | Commits packet to ring buffer |
+| `receive_from_shared_host_connection` | Zero-Copy Reader | **36.8 ns** | **36.8 ns** | Retrieves zero-copy buffer pointer |
+| `release_to_shared_host_connection` | Zero-Copy Reader | **17.8 ns** | **17.8 ns** | Advances ring buffer read offset |
+| `write_to_shared_host_connection` | Standard Writer | **52.8 ns** | **361.3 ns** (Signals Win32 Event) | Standard copy-based message write |
+| `read_from_shared_host_connection` | Standard Reader | **67.0 ns** | **67.0 ns** | Standard copy-based message read |
 
 ---
 
 ## Features
 
-- **Ultra-Low Latency**: Sub-microsecond message delivery (~154.2 ns avg latency with zero-copy).
-- **High Throughput**: Exceeds **30 Million ops/sec** on 64B payloads and **13.5 GB/s** bandwidth on large payloads using zero-copy mode.
-- **Zero-Copy API**: Avoids extra memory copies by reserving buffers directly within the mapped shared memory ring buffer (`zc_write_to_shared_host_connection` & `zc_send_to_shared_host_connection`).
-- **Flexible Connection Modes**: Supports `SH_FAST_CONNECTION` (spin-polling for ultra-low latency) and `SH_SLOW_CONNECTION` (OS event synchronization for low CPU utilization).
+- **Ultra-Low Latency**: Sub-50ns message delivery (**47.1 ns** average latency in Zero-Copy mode).
+- **High Throughput**: Exceeds **21.75 Million ops/sec** on 64B payloads and **12.64 GB/s** bandwidth on 64KB payloads.
+- **Zero-Copy Architecture**: Writer-side `claim`/`commit` and Reader-side `receive`/`release` eliminate heap allocations (`malloc`) and data copies (`memcpy`) on both ends.
 - **Zero Corruption Guarantee**: Includes boundary wrap validation and sequence tracking.
-- **Clean C API**: Host connection creation, connection attachment, standard read/write operations, zero-copy operations, and resource cleanup.
+- **Clean C API**: Supports both standard copy-based (`write`/`read`) and zero-copy (`claim`/`commit`/`receive`/`release`) interfaces.
 - **Cross-Platform Makefile**: Supports building shared libraries (`.dll` / `.so`) and test/benchmark suites.
 
 ---
@@ -95,38 +142,14 @@ Batch scripts (Windows) and shell scripts (Linux/macOS) are located in `scripts/
 
 Header file: `#include <shared_host.h>`
 
-### Connection Modes (`sh_connection_type`)
-
-When creating a host connection via `create_shared_host_connection`, pass a mode flag to control synchronization behavior:
-
-| Flag / Enum | Value | Description |
-| :--- | :--- | :--- |
-| `SH_FAST_CONNECTION` | `0` | **Spin-polling / Yield mode**: Busy-spins using `YieldProcessor()` / `pause` for sub-microsecond latency and maximum throughput. Best for high-frequency, real-time IPC. |
-| `SH_SLOW_CONNECTION` | `1` | **Event-driven mode**: Uses OS event handle synchronization (`WaitForSingleObject`) to sleep until data arrives. Minimizes CPU usage when waiting for messages. |
-
----
-
-### Zero-Copy API
-
-For maximum performance on medium to large payloads, use the zero-copy API to write directly into shared memory without intermediate `memcpy` operations:
-
-1. **`zc_write_to_shared_host_connection(connection, &buffer, buffer_size)`**:
-   Reserves `buffer_size` bytes in the shared memory ring buffer and sets `*buffer` to point directly to the destination memory.
-2. **`zc_send_to_shared_host_connection(connection)`**:
-   Publishes the reserved buffer to the receiver and signals connection synchronization (if using `SH_SLOW_CONNECTION`).
-
----
-
-### Code Examples
-
-#### Standard Write & Read Example
+### 1. Standard API (Copy-Based)
 
 ```c
 #include <stdio.h>
 #include <stdlib.h>
 #include <shared_host.h>
 
-// 1. Create a server host connection (passing SH_FAST_CONNECTION or SH_SLOW_CONNECTION)
+// 1. Create a server host connection
 shared_host_connection server_conn;
 sh_result_t err = create_shared_host_connection("my_channel", SH_FAST_CONNECTION, &server_conn);
 
@@ -142,27 +165,46 @@ write_to_shared_host_connection(&client_conn, data, sizeof(data));
 // 4. Read data on server
 void* read_buffer = NULL;
 size_t read_bytes = 0;
-read_from_shared_host_connection(&server_conn, &read_buffer, &read_bytes);
+if (read_from_shared_host_connection(&server_conn, &read_buffer, &read_bytes) == SH_OK) {
+    // Process read_buffer...
+    free(read_buffer);
+}
 
-// 5. Close connection
+// 5. Close connections
 close_shared_host_connection(&server_conn);
+close_shared_host_connection(&client_conn);
 ```
 
-#### Zero-Copy Write & Send Example
+### 2. Zero-Copy API (Direct Shared Memory Access - No Malloc / No Memcpy)
+
+The Zero-Copy API allows producers to claim ring buffer memory directly and consumers to read shared memory pointers without intermediate heap allocations or copies.
 
 ```c
+#include <stdio.h>
 #include <shared_host.h>
 
-void *tx_buffer = NULL;
-size_t payload_size = 4096;
+// Producer / Writer: Claim shared memory buffer & Commit
+void *tx_buf = NULL;
+size_t payload_size = 256;
 
-// 1. Reserve zero-copy buffer space directly in shared memory
-if (zc_write_to_shared_host_connection(&client_conn, &tx_buffer, payload_size) == SH_OK) {
-    // 2. Populate payload directly in tx_buffer (zero memcpy overhead!)
-    snprintf((char*)tx_buffer, payload_size, "Direct zero-copy payload");
+if (claim_from_shared_host_connection(&client_conn, &tx_buf, payload_size) == SH_OK) {
+    // Write directly into tx_buf (mapped shared memory ring buffer)
+    snprintf((char*)tx_buf, payload_size, "Zero-Copy IPC Payload");
 
-    // 3. Publish and send to receiver
-    zc_send_to_shared_host_connection(&client_conn);
+    // Commit to make message visible to reader
+    commit_to_shared_host_connection(&client_conn);
+}
+
+// Consumer / Reader: Receive zero-copy buffer & Release
+void *rx_buf = NULL;
+size_t rx_size = 0;
+
+if (receive_from_shared_host_connection(&server_conn, &rx_buf, &rx_size) == SH_OK) {
+    // Access rx_buf directly in shared memory without heap allocation
+    printf("Received %zu bytes: %s\n", rx_size, (char*)rx_buf);
+
+    // Release buffer to advance reader offset
+    release_to_shared_host_connection(&server_conn);
 }
 ```
 
@@ -176,18 +218,17 @@ shared-host/
 │   ├── shared_host.h              # Public C API header
 │   └── internal/                  # Internal connection and mapping headers
 ├── src/
-│   ├── shared_host_core.c         # Connection creation, attachment, and close logic
-│   ├── shared_host_read.c         # Read operations (fast + slow)
-│   ├── shared_host_write.c        # Standard write operations (fast + slow)
-│   ├── shared_host_zc_write.c     # Zero-copy buffer reservation logic
-│   ├── shared_host_zc_send.c      # Zero-copy message publish/signal logic
+│   ├── shared_host_core.c         # Main IPC connection and buffer logic
+│   ├── shared_host_read.c         # Copy-based read functions
+│   ├── shared_host_write.c        # Copy-based write functions
+│   ├── shared_host_claim.c        # Zero-copy writer claim functions
+│   ├── shared_host_commit.c       # Zero-copy writer commit functions
+│   ├── shared_host_receive.c      # Zero-copy reader receive functions
+│   ├── shared_host_release.c      # Zero-copy reader release functions
 │   └── shm_operations/
 │       └── shm_mapping.c          # OS shared memory mapping implementations
 ├── tests/
-│   ├── test_utils.h               # Shared defines, structs, and inline utilities
-│   ├── benchmark.c                # Server/client benchmark phases (latency, sweep, integrity)
-│   ├── history.c                  # JSON persistence and historical regression comparison
-│   └── main.c                     # Entry point and dual-mode orchestration
+│   └── benchmark.c                # Comprehensive test and benchmark suite
 ├── scripts/                       # Wrapper scripts (.bat, .cmd, .sh)
 ├── Makefile                       # Cross-platform GNU Makefile
 └── README.md                      # Documentation and performance stats

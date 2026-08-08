@@ -147,7 +147,7 @@ int main() {
     printf("\n");
     printf("*****************************************************************\n");
     printf("*     SHARED-HOST COMPREHENSIVE TEST & BENCHMARK SUITE           *\n");
-    printf("*     Version: Enhanced with per-function timing, jitter,       *\n");
+    printf("*     Version: Ehanced with per-function timing, jitter,       *\n");
     printf("*     concurrent tests, and comprehensive metrics               *\n");
     printf("*****************************************************************\n\n");
 
@@ -182,28 +182,43 @@ int main() {
     benchmark_results_t fast_results, slow_results;
     benchmark_results_t fast_zc_results, slow_zc_results;
 
+    char port_fast_std[64], port_fast_std_t[64];
+    char port_fast_zc[64], port_fast_zc_t[64];
+    char port_slow_std[64], port_slow_std_t[64];
+    char port_slow_zc[64], port_slow_zc_t[64];
+    DWORD pid = GetCurrentProcessId();
+
+    snprintf(port_fast_std, sizeof(port_fast_std), "fast_std_%lu", pid);
+    snprintf(port_fast_std_t, sizeof(port_fast_std_t), "fast_std_t_%lu", pid);
+    snprintf(port_fast_zc, sizeof(port_fast_zc), "fast_zc_%lu", pid);
+    snprintf(port_fast_zc_t, sizeof(port_fast_zc_t), "fast_zc_t_%lu", pid);
+    snprintf(port_slow_std, sizeof(port_slow_std), "slow_std_%lu", pid);
+    snprintf(port_slow_std_t, sizeof(port_slow_std_t), "slow_std_t_%lu", pid);
+    snprintf(port_slow_zc, sizeof(port_slow_zc), "slow_zc_%lu", pid);
+    snprintf(port_slow_zc_t, sizeof(port_slow_zc_t), "slow_zc_t_%lu", pid);
+
     // ---- Run FAST mode (Standard) ----
     printf("[1] Running FAST mode (Standard)...\n");
-    run_mode(SH_FAST_CONNECTION, 0, "test_fast_std", &fast_results);
-    run_function_timing_test(SH_FAST_CONNECTION, 0, "test_fast_std_timing", &fast_results.func_timing);
+    run_mode(SH_FAST_CONNECTION, 0, port_fast_std, &fast_results);
+    run_function_timing_test(SH_FAST_CONNECTION, 0, port_fast_std_t, &fast_results.func_timing);
     Sleep(200);
 
     // ---- Run FAST mode (Zero-Copy) ----
     printf("[2] Running FAST mode (Zero-Copy)...\n");
-    run_mode(SH_FAST_CONNECTION, 1, "test_fast_zc", &fast_zc_results);
-    run_function_timing_test(SH_FAST_CONNECTION, 1, "test_fast_zc_timing", &fast_zc_results.func_timing);
+    run_mode(SH_FAST_CONNECTION, 1, port_fast_zc, &fast_zc_results);
+    run_function_timing_test(SH_FAST_CONNECTION, 1, port_fast_zc_t, &fast_zc_results.func_timing);
     Sleep(200);
 
     // ---- Run SLOW mode (Standard) ----
     printf("[3] Running SLOW mode (Standard)...\n");
-    run_mode(SH_SLOW_CONNECTION, 0, "test_slow_std", &slow_results);
-    run_function_timing_test(SH_SLOW_CONNECTION, 0, "test_slow_std_timing", &slow_results.func_timing);
+    run_mode(SH_SLOW_CONNECTION, 0, port_slow_std, &slow_results);
+    run_function_timing_test(SH_SLOW_CONNECTION, 0, port_slow_std_t, &slow_results.func_timing);
     Sleep(200);
 
     // ---- Run SLOW mode (Zero-Copy) ----
     printf("[4] Running SLOW mode (Zero-Copy)...\n");
-    run_mode(SH_SLOW_CONNECTION, 1, "test_slow_zc", &slow_zc_results);
-    run_function_timing_test(SH_SLOW_CONNECTION, 1, "test_slow_zc_timing", &slow_zc_results.func_timing);
+    run_mode(SH_SLOW_CONNECTION, 1, port_slow_zc, &slow_zc_results);
+    run_function_timing_test(SH_SLOW_CONNECTION, 1, port_slow_zc_t, &slow_zc_results.func_timing);
 
     // ---- Print all comparison tables ----
     printf("\n");
@@ -216,7 +231,7 @@ int main() {
 
     // Zero-Copy vs Standard comparison for FAST
     print_zc_comparison_table(&fast_results, &fast_zc_results);
-    
+
     // Zero-Copy vs Standard comparison for SLOW
     print_zc_comparison_table(&slow_results, &slow_zc_results);
 
