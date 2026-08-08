@@ -37,13 +37,22 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
     printf("[PHASE 1] Running Latency & Jitter Distribution (%d samples)...\n", LATENCY_SAMPLES);
 
     // Drain 100 warmup messages sent by client
-    void* dummy_buf = NULL;
-    size_t dummy_sz = 0;
     for (int i = 0; i < 100; i++) {
-        while (read_from_shared_host_connection(connection, &dummy_buf, &dummy_sz) != SH_OK) {
-            _mm_pause();
+        if (use_zero_copy) {
+            void *rx_ptr = NULL;
+            size_t rx_len = 0;
+            while (receive_from_shared_host_connection(connection, &rx_ptr, &rx_len) != SH_OK) {
+                _mm_pause();
+            }
+            release_to_shared_host_connection(connection);
+        } else {
+            void* dummy_buf = NULL;
+            size_t dummy_sz = 0;
+            while (read_from_shared_host_connection(connection, &dummy_buf, &dummy_sz) != SH_OK) {
+                _mm_pause();
+            }
+            if (dummy_buf) free(dummy_buf);
         }
-        if (dummy_buf) { free(dummy_buf); dummy_buf = NULL; }
     }
 
     LARGE_INTEGER t_start, t_end;
@@ -52,16 +61,23 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
     for (int i = 0; i < LATENCY_SAMPLES; i++) {
         QueryPerformanceCounter(&t_start);
 
-        while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
-            _mm_pause();
+        if (use_zero_copy) {
+            while (receive_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                _mm_pause();
+            }
+            QueryPerformanceCounter(&t_end);
+            release_to_shared_host_connection(connection);
+        } else {
+            while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                _mm_pause();
+            }
+            QueryPerformanceCounter(&t_end);
+            if (buffer) free(buffer);
         }
-
-        QueryPerformanceCounter(&t_end);
 
         double elapsed_ns = ticks_to_ns(t_end.QuadPart - t_start.QuadPart, freq);
         results->latency_samples[i] = elapsed_ns;
         total_ns += elapsed_ns;
-        if (buffer) free(buffer);
     }
 
     // Compute statistics
@@ -110,12 +126,20 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
 
         for (int i = 0; i < SWEEP_ITERATIONS; i++) {
             QueryPerformanceCounter(&t_start);
-            while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
-                _mm_pause();
+            if (use_zero_copy) {
+                while (receive_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                    _mm_pause();
+                }
+                QueryPerformanceCounter(&t_end);
+                release_to_shared_host_connection(connection);
+            } else {
+                while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                    _mm_pause();
+                }
+                QueryPerformanceCounter(&t_end);
+                if (buffer) free(buffer);
             }
-            QueryPerformanceCounter(&t_end);
             sweep_samples[i] = ticks_to_ns(t_end.QuadPart - t_start.QuadPart, freq);
-            if (buffer) free(buffer);
         }
 
         // Calculate stats from samples
@@ -148,8 +172,14 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
     results->data_corruptions = 0;
 
     for (int i = 0; i < STRESS_ITERATIONS; i++) {
-        while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
-            _mm_pause();
+        if (use_zero_copy) {
+            while (receive_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                _mm_pause();
+            }
+        } else {
+            while (read_from_shared_host_connection(connection, &buffer, &buffer_size) != SH_OK) {
+                _mm_pause();
+            }
         }
 
         // 1. Verify sequence header in first 8 bytes
@@ -172,7 +202,12 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
                 break;
             }
         }
-        if (buffer) free(buffer);
+
+        if (use_zero_copy) {
+            release_to_shared_host_connection(connection);
+        } else {
+            if (buffer) free(buffer);
+        }
     }
 
     results->integrity_passed = (results->seq_corruptions == 0 && results->data_corruptions == 0);
@@ -325,16 +360,58 @@ void run_zc_unit_tests(void) {
         void *buf1 = NULL, *buf2 = NULL;
         sh_result_t res1 = claim_from_shared_host_connection(client_conn, &buf1, 64);
         sh_result_t res2 = claim_from_shared_host_connection(client_conn, &buf2, 64);
-        // Just check that the calls don't crash - behavior is implementation-specific
         printf(" [PASS] Test 6: Multiple claim calls completed (res1=%d, res2=%d)\n", res1, res2);
         tests_passed++;
-        // Cleanup - send if first write succeeded
         if (res1 == SH_OK) commit_to_shared_host_connection(client_conn);
         close_shared_host_connection(server_conn);
         close_shared_host_connection(client_conn);
     } else {
         printf(" [SKIP] Test 6: Connection creation failed\n");
         tests_total--;
+        free(server_conn);
+        free(client_conn);
+    }
+
+    // Test 7: Full Zero-Copy exchange (claim/commit -> receive/release)
+    tests_total++;
+    server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
+    client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
+    char port8[64];
+    snprintf(port8, sizeof(port8), "zc_t8_%lu", GetCurrentProcessId());
+    err1 = create_shared_host_connection(port8, (char)SH_FAST_CONNECTION, server_conn);
+    err2 = connect_to_shared_host_connection(port8, &size, client_conn);
+
+    if (err1 == SH_OK && err2 == SH_OK) {
+        void *tx_buf = NULL;
+        sh_result_t write_res = claim_from_shared_host_connection(client_conn, &tx_buf, 128);
+        if (write_res == SH_OK && tx_buf != NULL) {
+            memset(tx_buf, 0x55, 128);
+            sh_result_t commit_res = commit_to_shared_host_connection(client_conn);
+            if (commit_res == SH_OK) {
+                void *rx_buf = NULL;
+                size_t rx_size = 0;
+                sh_result_t recv_res = receive_from_shared_host_connection(server_conn, &rx_buf, &rx_size);
+                if (recv_res == SH_OK && rx_buf != NULL && rx_size == 128 && ((char*)rx_buf)[0] == 0x55 && ((char*)rx_buf)[127] == 0x55) {
+                    sh_result_t rel_res = release_to_shared_host_connection(server_conn);
+                    if (rel_res == SH_OK) {
+                        printf(" [PASS] Test 7: Full Zero-Copy (claim/commit -> receive/release) exchange succeeded\n");
+                        tests_passed++;
+                    } else {
+                        printf(" [FAIL] Test 7: release_to_shared_host_connection failed (%d)\n", rel_res);
+                    }
+                } else {
+                    printf(" [FAIL] Test 7: receive_from_shared_host_connection failed (res=%d, buf=%p, size=%zu)\n", recv_res, rx_buf, rx_size);
+                }
+            } else {
+                printf(" [FAIL] Test 7: commit_to_shared_host_connection failed (%d)\n", commit_res);
+            }
+        } else {
+            printf(" [FAIL] Test 7: claim_from_shared_host_connection failed (%d)\n", write_res);
+        }
+        close_shared_host_connection(server_conn);
+        close_shared_host_connection(client_conn);
+    } else {
+        printf(" [FAIL] Test 7: Connection creation failed (err1=%d, err2=%d)\n", err1, err2);
         free(server_conn);
         free(client_conn);
     }
