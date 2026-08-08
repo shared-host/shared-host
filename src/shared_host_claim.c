@@ -1,7 +1,7 @@
 #include <shared_host.h>
 #include <string.h>
 
-sh_result_t zc_write_to_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size) {
+sh_result_t claim_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size) {
 	if (connection == NULL || buffer == NULL || buffer_size == 0) {
 		return SH_ERR_INVALID_PARAMETER;
 	}
@@ -40,8 +40,6 @@ sh_result_t zc_write_to_shared_host_connection(shared_host_connection *connectio
 	*buffer = (void *)((char *)current_item_address + 2 * sizeof(size_t));
 
 	connection->open_offset = current_item_offset;
-
-	// connection->opp_shared_connection_header->last_item_offset = current_item_offset;
 
 	return SH_OK;
 }

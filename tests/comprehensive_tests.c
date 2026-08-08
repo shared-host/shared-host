@@ -1,6 +1,105 @@
 #include "test_utils.h"
 #include <assert.h>
 
+void test_wrap_around_step_by_step(void) {
+    printf("\n");
+    printf("=================================================================\n");
+    printf("         RING BUFFER WRAP-AROUND STEP-BY-STEP DEMO               \n");
+    printf("=================================================================\n\n");
+
+    shared_host_connection server, client;
+    memset(&server, 0, sizeof(server));
+    memset(&client, 0, sizeof(client));
+
+    char port_name[64];
+    snprintf(port_name, sizeof(port_name), "wrap_demo_%lu", GetCurrentProcessId());
+
+    sh_result_t res = create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, &server);
+    if (res != SH_OK) {
+        printf("[DEMO] Failed to create server connection: %s\n", error_to_string(res));
+        return;
+    }
+
+    size_t conn_size = 0;
+    res = connect_to_shared_host_connection(port_name, &conn_size, &client);
+    if (res != SH_OK) {
+        printf("[DEMO] Failed to connect client: %s\n", error_to_string(res));
+        close_shared_host_connection(&server);
+        return;
+    }
+
+    // Override settings page ring buffer size to 1000 bytes for demonstration!
+    server.shared_settings_page_ptr->size = 1000;
+    client.shared_settings_page_ptr->size = 1000;
+
+    printf("Ring buffer size dynamically set to: %zu bytes\n", server.shared_settings_page_ptr->size);
+    printf("Initial offsets: server current=%zu, last=%zu | client current=%zu, last=%zu\n\n",
+           server.own_shared_connection_header->current_item_offset,
+           server.own_shared_connection_header->last_item_offset,
+           client.own_shared_connection_header->current_item_offset,
+           client.own_shared_connection_header->last_item_offset);
+
+    printf("--- WRITING PACKETS (250 bytes each) ---\n");
+
+    char msg1[250], msg2[250], msg3[250], msg4[250];
+    snprintf(msg1, sizeof(msg1), "PACKET_1_DATA");
+    snprintf(msg2, sizeof(msg2), "PACKET_2_DATA");
+    snprintf(msg3, sizeof(msg3), "PACKET_3_DATA");
+    snprintf(msg4, sizeof(msg4), "PACKET_4_DATA (WRAPPED)");
+
+    // Write Packet 1
+    res = write_to_shared_host_connection(&client, msg1, 250);
+    printf("[WRITE 1] Packet 1 (250B) -> res=%d | last_item_offset=%zu | next_ptr at last_item=%zu\n",
+           res, client.opp_shared_connection_header->last_item_offset,
+           *(size_t*)((char*)client.opp_page_start + client.opp_shared_connection_header->last_item_offset));
+
+    // Write Packet 2
+    res = write_to_shared_host_connection(&client, msg2, 250);
+    printf("[WRITE 2] Packet 2 (250B) -> res=%d | last_item_offset=%zu | next_ptr at last_item=%zu\n",
+           res, client.opp_shared_connection_header->last_item_offset,
+           *(size_t*)((char*)client.opp_page_start + client.opp_shared_connection_header->last_item_offset));
+
+    // Write Packet 3
+    res = write_to_shared_host_connection(&client, msg3, 250);
+    printf("[WRITE 3] Packet 3 (250B) -> res=%d | last_item_offset=%zu | next_ptr at last_item=%zu\n",
+           res, client.opp_shared_connection_header->last_item_offset,
+           *(size_t*)((char*)client.opp_page_start + client.opp_shared_connection_header->last_item_offset));
+
+    // Write Packet 4 (Triggers wrap-around back to 0!)
+    res = write_to_shared_host_connection(&client, msg4, 250);
+    printf("[WRITE 4] Packet 4 (250B - WRAP) -> res=%d | last_item_offset=%zu | next_ptr at last_item=%zu\n\n",
+           res, client.opp_shared_connection_header->last_item_offset,
+           *(size_t*)((char*)client.opp_page_start + client.opp_shared_connection_header->last_item_offset));
+
+    printf("--- READING PACKETS ---\n");
+    for (int r = 1; r <= 4; r++) {
+        void *rx_buf = NULL;
+        size_t rx_sz = 0;
+        printf("[READ %d] Reading... (current server offset: %zu, last: %zu)\n",
+               r, server.own_shared_connection_header->current_item_offset,
+               server.own_shared_connection_header->last_item_offset);
+
+        if (server.own_shared_connection_header->current_item_offset == server.own_shared_connection_header->last_item_offset) {
+            printf("  ==> [READ %d WOULD FREEZE/SPIN HERE]: current_offset (%zu) == last_offset (%zu)!\n\n",
+                   r, server.own_shared_connection_header->current_item_offset,
+                   server.own_shared_connection_header->last_item_offset);
+            break;
+        }
+
+        res = read_from_shared_host_connection(&server, &rx_buf, &rx_sz);
+        if (res == SH_OK && rx_buf) {
+            printf("  ==> [READ %d GOT DATA]: size=%zu, content='%s', server current_offset is now %zu\n\n",
+                   r, rx_sz, (char*)rx_buf, server.own_shared_connection_header->current_item_offset);
+            free(rx_buf);
+        } else {
+            printf("  ==> [READ %d FAILED]: res=%d\n\n", r, res);
+        }
+    }
+
+    close_shared_host_connection(&server);
+    close_shared_host_connection(&client);
+}
+
 // =============================================================================
 // EDGE CASE TESTS
 // =============================================================================
@@ -52,7 +151,7 @@ void run_edge_case_tests(void) {
         shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
         memset(server, 0, sizeof(shared_host_connection));
         memset(client, 0, sizeof(shared_host_connection));
-        
+
         if (create_shared_host_connection("edge_test_1", (char)SH_FAST_CONNECTION, server) == SH_OK) {
             size_t size = 0;
             if (connect_to_shared_host_connection("edge_test_1", &size, client) == SH_OK) {
@@ -64,6 +163,7 @@ void run_edge_case_tests(void) {
                     if (read_from_shared_host_connection(server, &rx_buf, &rx_sz) == SH_OK && rx_sz == 64) {
                         printf(" [PASS] Test 3: Valid write & read succeeded\n");
                         tests_passed++;
+                        if (rx_buf) free(rx_buf);
                     } else {
                         printf(" [FAIL] Test 3: Read back failed\n");
                     }
@@ -128,6 +228,7 @@ static DWORD WINAPI stress_reader_thread(LPVOID lpParam) {
     while (params->active && params->drained_count < params->num_messages) {
         if (read_from_shared_host_connection(params->server, &buffer, &buffer_size) == SH_OK) {
             params->drained_count++;
+            if (buffer) free(buffer);
         } else {
             _mm_pause();
         }
@@ -152,10 +253,10 @@ void run_stress_tests(void) {
         for (int i = 0; i < 200; i++) {
             shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
             shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-            
+
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "stress_conn_%d", i);
-            
+
             if (create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, server) != SH_OK) {
                 failures++;
                 free(server);
@@ -171,7 +272,7 @@ void run_stress_tests(void) {
                 close_shared_host_connection(server);
             }
         }
-        
+
         if (failures == 0) {
             printf(" [PASS] Test 1: 200 connect/disconnect cycles completed cleanly\n");
             tests_passed++;
@@ -185,10 +286,10 @@ void run_stress_tests(void) {
     {
         const int STRESS_MSG_COUNT = 1000000;
         printf(" [STRESS] Sustained high-throughput (%d messages concurrent)...\n", STRESS_MSG_COUNT);
-        
+
         shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
         shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-        
+
         if (create_shared_host_connection("stress_throughput_conc", (char)SH_FAST_CONNECTION, server) == SH_OK) {
             size_t size = 0;
             if (connect_to_shared_host_connection("stress_throughput_conc", &size, client) == SH_OK) {
@@ -218,17 +319,17 @@ void run_stress_tests(void) {
 
                 QueryPerformanceCounter(&end);
                 double elapsed_sec = (double)(end.QuadPart - start.QuadPart) / (double)freq.QuadPart;
-                
+
                 printf("   -> Sent & Drained %d messages in %.3f s (%.0f msg/s)\n",
                        rparams.drained_count, elapsed_sec, (double)rparams.drained_count / elapsed_sec);
-                
+
                 if (rparams.drained_count == STRESS_MSG_COUNT) {
                     printf(" [PASS] Test 2: Sustained throughput test completed (%d / %d)\n", rparams.drained_count, STRESS_MSG_COUNT);
                     tests_passed++;
                 } else {
                     printf(" [FAIL] Test 2: Message count mismatch (%d / %d)\n", rparams.drained_count, STRESS_MSG_COUNT);
                 }
-                
+
                 close_shared_host_connection(client);
             } else {
                 free(client);
@@ -259,7 +360,7 @@ void run_error_handling_tests(void) {
     tests_total++;
     {
         shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-        
+
         if (create_shared_host_connection("err_test_1", (char)SH_FAST_CONNECTION, server) == SH_OK) {
             if (server->own_shared_connection_header->current_item_offset == server->own_shared_connection_header->last_item_offset) {
                 printf(" [PASS] Test 1: Empty connection correctly identified (no pending messages)\n");
@@ -277,7 +378,7 @@ void run_error_handling_tests(void) {
     tests_total++;
     {
         shared_host_connection* conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-        
+
         if (create_shared_host_connection("err_test_2", (char)SH_FAST_CONNECTION, conn) == SH_OK) {
             char buf[16] = {0};
             sh_result_t res = write_to_shared_host_connection(conn, buf, 0);
@@ -314,14 +415,14 @@ void run_memory_safety_tests(void) {
     {
         printf(" [INFO] Running 50 sequential connection allocation/deallocation iterations...\n");
         int errors = 0;
-        
+
         for (int i = 0; i < 50; i++) {
             shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
             shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-            
+
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "mem_seq_test_%d", i);
-            
+
             if (create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, server) == SH_OK) {
                 size_t size = 0;
                 if (connect_to_shared_host_connection(port_name, &size, client) == SH_OK) {
@@ -331,6 +432,8 @@ void run_memory_safety_tests(void) {
                         size_t rx_sz;
                         if (read_from_shared_host_connection(server, &rx_buf, &rx_sz) != SH_OK) {
                             errors++;
+                        } else {
+                            if (rx_buf) free(rx_buf);
                         }
                     } else {
                         errors++;
@@ -347,7 +450,7 @@ void run_memory_safety_tests(void) {
                 free(client);
             }
         }
-        
+
         if (errors == 0) {
             printf(" [PASS] Test 1: 50 allocation/deallocation cycles executed cleanly\n");
             tests_passed++;
@@ -464,6 +567,7 @@ void run_concurrent_client_tests(void) {
                         if (worker_id != (uint32_t)(i + 1)) {
                             corruptions++;
                         }
+                        if (rx_buf) free(rx_buf);
                     }
                 }
                 if (!read_any) {

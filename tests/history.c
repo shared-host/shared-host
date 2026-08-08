@@ -44,7 +44,7 @@ static void write_result_json(FILE *fp, benchmark_results_t *r, const char *time
     fprintf(fp, "        \"p999_ns\": %.1f,\n", r->latency.p999_ns);
     fprintf(fp, "        \"max_ns\": %.1f\n", r->latency.max_ns);
     fprintf(fp, "      },\n");
-    fprintf(fp, "      \"sweep\": [\n");
+    fprintf(fp, "      \"swep\": [\n");
     for (int i = 0; i < NUM_SWEEP_SIZES; i++) {
         fprintf(fp, "        { \"payload_bytes\": %zu, \"ops_per_sec\": %.0f, \"payload_bw_mbps\": %.2f, \"wire_bw_mbps\": %.2f, \"avg_latency_ns\": %.1f }%s\n",
                 SWEEP_SIZES[i], r->ops_per_sec[i], r->payload_bw_mbps[i], r->wire_bw_mbps[i], r->avg_latency_ns[i],
