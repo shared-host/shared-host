@@ -91,7 +91,7 @@ sh_result_t write_to_shared_host_connection_slow(shared_host_connection *connect
 						 // 2*sizeof(size_t) for headers
 
     #ifdef _WIN32
-    if (&connection->opp_shared_connection_header->last_item_offset == connection->opp_shared_connection_header->current_item_offset) {
+    if (connection->opp_shared_connection_header->last_item_offset == connection->opp_shared_connection_header->current_item_offset) {
        	SetEvent(connection->opp_event_handle);
     }
     #endif // this event can be sent before the last_item_offset update, because the read function doesnt use last_item_offset after the event is recieved
