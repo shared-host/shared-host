@@ -97,6 +97,14 @@ sh_result_t commit_to_shared_host_connection(shared_host_connection *connection)
 sh_result_t commit_to_shared_host_connection_fast(shared_host_connection *connection);
 sh_result_t commit_to_shared_host_connection_slow(shared_host_connection *connection);
 
+sh_result_t receive_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t *buffer_size);
+sh_result_t receive_from_shared_host_connection_fast(shared_host_connection *connection, void **buffer, size_t *buffer_size);
+sh_result_t receive_from_shared_host_connection_slow(shared_host_connection *connection, void **buffer, size_t *buffer_size);
+
+sh_result_t release_to_shared_host_connection(shared_host_connection *connection);
+sh_result_t release_to_shared_host_connection_fast(shared_host_connection *connection);
+sh_result_t release_to_shared_host_connection_slow(shared_host_connection *connection);
+
 char* error_to_string(sh_result_t result);
 
 #ifdef __cplusplus
