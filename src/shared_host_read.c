@@ -25,14 +25,12 @@ sh_result_t read_from_shared_host_connection_fast(shared_host_connection *connec
 	current_item_address = (void *)((char *)connection->own_page_start + next_item_offset);
 
 	*buffer_size = *(size_t *)((char *)current_item_address + sizeof(size_t));
-	*buffer = (void *)((char *)current_item_address + 2 * sizeof(size_t));
 
 	*buffer = malloc(*buffer_size);
 	if (*buffer == NULL) {
 	    return SH_ERR_OOM;
 	}
-	memcpy(*buffer, (void*)((char*)current_item_address + 2*sizeof(size_t)),
-	*buffer_size);
+	memcpy(*buffer, (void*)((char*)current_item_address + 2*sizeof(size_t)), *buffer_size);
 
 	connection->own_shared_connection_header->current_item_offset = next_item_offset;
 
@@ -58,14 +56,12 @@ sh_result_t read_from_shared_host_connection_slow(shared_host_connection *connec
 	current_item_address = (void *)((char *)connection->own_page_start + next_item_offset);
 
 	*buffer_size = *(size_t *)((char *)current_item_address + sizeof(size_t));
-	*buffer = (void *)((char *)current_item_address + 2 * sizeof(size_t));
 
 	*buffer = malloc(*buffer_size);
 	if (*buffer == NULL) {
 	    return SH_ERR_OOM;
 	}
-	memcpy(*buffer, (void*)((char*)current_item_address + 2*sizeof(size_t)),
-	*buffer_size);
+	memcpy(*buffer, (void *)((char *)current_item_address + 2 * sizeof(size_t)), *buffer_size);
 
 	connection->own_shared_connection_header->current_item_offset = next_item_offset;
 

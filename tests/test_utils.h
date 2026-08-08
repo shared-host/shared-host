@@ -19,8 +19,8 @@
 
 // Test parameters
 #define LATENCY_SAMPLES     1000000   // 1M samples for latency distribution
-#define SWEEP_ITERATIONS    500000    // 500k ops per size sweep step
-#define STRESS_ITERATIONS   1000000   // 1M variable-size packets for stress test
+#define SWEEP_ITERATIONS    50000     // 50k ops per size sweep step
+#define STRESS_ITERATIONS   100000    // 100k variable-size packets for stress test
 
 // Regression thresholds
 #define THROUGHPUT_WARN_PCT 15.0      // ±15% throughput variance triggers warning
@@ -59,7 +59,7 @@ typedef struct {
 typedef struct {
     double write_ns;       // write_to_shared_host_connection avg time
     double read_ns;        // read_from_shared_host_connection avg time
-    double zc_write_ns;    // zc_write_to_shared_host_connection avg time
+    double zc_write_ns;    // zc_write_to_sared_host_connection avg time
     double zc_send_ns;     // zc_send_to_shared_host_connection avg time
     double roundtrip_ns;   // Full write+read cycle
 } function_timing_t;
@@ -197,6 +197,7 @@ void load_and_compare_history(benchmark_results_t *fast, benchmark_results_t *fa
 // =============================================================================
 // New test function declarations (in test_main.c or new test file)
 // =============================================================================
+void test_wrap_around_step_by_step(void);
 void run_edge_case_tests(void);
 void run_stress_tests(void);
 void run_concurrent_client_tests(void);

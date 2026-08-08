@@ -55,7 +55,12 @@ typedef struct shared_host_shared_settings_header {
 typedef struct shared_host_connection {
     sh_result_t (*write)(struct shared_host_connection *connection, void *buffer, size_t buffer_size);
     sh_result_t (*read)(struct shared_host_connection *connection, void **buffer, size_t *buffer_size);
-    sh_result_t (*send)(struct shared_host_connection *connection);
+
+    sh_result_t (*claim)(struct shared_host_connection *connection, void **buffer, size_t buffer_size);
+    sh_result_t (*commit)(struct shared_host_connection *connection);
+
+    sh_result_t (*receive)(struct shared_host_connection *connection, void **buffer, size_t *buffer_size);
+    sh_result_t (*release)(struct shared_host_connection *connection);
 
     void* own_page_start;
     void* opp_page_start;
@@ -86,12 +91,11 @@ sh_result_t read_from_shared_host_connection(shared_host_connection *connection,
 sh_result_t read_from_shared_host_connection_fast(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 sh_result_t read_from_shared_host_connection_slow(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 
-sh_result_t zc_write_to_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size);
+sh_result_t claim_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size);
 
-sh_result_t zc_send_to_shared_host_connection(shared_host_connection *connection);
-sh_result_t zc_send_to_shared_host_connection_fast(shared_host_connection *connection);
-sh_result_t zc_send_to_shared_host_connection_slow(shared_host_connection *connection);
-
+sh_result_t commit_to_shared_host_connection(shared_host_connection *connection);
+sh_result_t commit_to_shared_host_connection_fast(shared_host_connection *connection);
+sh_result_t commit_to_shared_host_connection_slow(shared_host_connection *connection);
 
 char* error_to_string(sh_result_t result);
 

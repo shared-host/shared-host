@@ -43,6 +43,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
         while (read_from_shared_host_connection(connection, &dummy_buf, &dummy_sz) != SH_OK) {
             _mm_pause();
         }
+        if (dummy_buf) { free(dummy_buf); dummy_buf = NULL; }
     }
 
     LARGE_INTEGER t_start, t_end;
@@ -60,6 +61,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
         double elapsed_ns = ticks_to_ns(t_end.QuadPart - t_start.QuadPart, freq);
         results->latency_samples[i] = elapsed_ns;
         total_ns += elapsed_ns;
+        if (buffer) free(buffer);
     }
 
     // Compute statistics
@@ -70,7 +72,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
     results->latency.avg_ns  = total_ns / LATENCY_SAMPLES;
     results->latency.std_dev_ns = calculate_std_dev(results->latency_samples, LATENCY_SAMPLES, results->latency.avg_ns);
     results->latency.jitter_ns = calculate_jitter(results->latency_samples, LATENCY_SAMPLES, results->latency.avg_ns);
-    
+
     // Percentiles
     results->latency.p25_ns  = get_percentile(results->latency_samples, LATENCY_SAMPLES, 25.0);
     results->latency.p50_ns  = get_percentile(results->latency_samples, LATENCY_SAMPLES, 50.0);
@@ -113,6 +115,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
             }
             QueryPerformanceCounter(&t_end);
             sweep_samples[i] = ticks_to_ns(t_end.QuadPart - t_start.QuadPart, freq);
+            if (buffer) free(buffer);
         }
 
         // Calculate stats from samples
@@ -120,7 +123,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
         for (int i = 0; i < SWEEP_ITERATIONS; i++) total += sweep_samples[i];
         double avg = total / SWEEP_ITERATIONS;
         double std_dev = calculate_std_dev(sweep_samples, SWEEP_ITERATIONS, avg);
-        
+
         double elapsed_sec = total / 1e9;
         results->ops_per_sec[s] = SWEEP_ITERATIONS / elapsed_sec;
         results->payload_bw_mbps[s] = ((double)SWEEP_ITERATIONS * expected_size) / (1024.0 * 1024.0 * elapsed_sec);
@@ -131,7 +134,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
         printf(" %6zuB | %9.0f/s | %8.2f MB/s | %8.2f MB/s | %7.1f ns | %7.1f ns\n",
                expected_size, results->ops_per_sec[s], results->payload_bw_mbps[s],
                results->wire_bw_mbps[s], results->avg_latency_ns[s], results->std_dev_ns[s]);
-        
+
         free(sweep_samples);
     }
     printf("\n");
@@ -155,17 +158,21 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
             results->seq_corruptions++;
         }
 
-        // 2. Verify entire payload byte-for-byte against PRNG seed
+        // 2. Verify entire payload uint64_t word-by-word against PRNG seed
         uint32_t seed = (uint32_t)i;
-        uint8_t* byte_buf = (uint8_t*)buffer;
+        uint64_t *word_buf = (uint64_t*)((char*)buffer + 8);
+        size_t num_words = (buffer_size - 8) / sizeof(uint64_t);
 
-        for (size_t b = 8; b < buffer_size; b++) { // Increment by 1 byte
-            uint8_t expected_byte = (uint8_t)(xorshift32(&seed) & 0xFF);
-            if (byte_buf[b] != expected_byte) {
+        for (size_t w = 0; w < num_words; w++) {
+            uint32_t p1 = xorshift32(&seed);
+            uint32_t p2 = xorshift32(&seed);
+            uint64_t expected_word = ((uint64_t)p1 << 32) | p2;
+            if (word_buf[w] != expected_word) {
                 results->data_corruptions++;
-                break; // Break payload loop, move to next message
+                break;
             }
         }
+        if (buffer) free(buffer);
     }
 
     results->integrity_passed = (results->seq_corruptions == 0 && results->data_corruptions == 0);
@@ -179,7 +186,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
     // PHASE 4: PER-FUNCTION TIMING BREAKDOWN
     // =========================================================================
     printf("[PHASE 4] Running Per-Function Timing Analysis...\n");
-    
+
     // We need a fresh connection for accurate function timing
     // (or we can estimate from the samples we already have)
     results->func_timing.roundtrip_ns = results->latency.avg_ns;
@@ -208,40 +215,40 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
 void run_zc_unit_tests(void) {
     printf("\n");
     printf("=================================================================\n");
-    printf("         ZERO-COPY (zc_write / zc_send) UNIT TESTS               \n");
+    printf("         ZERO-COPY (claim / commit) UNIT TESTS                    \n");
     printf("=================================================================\n\n");
 
     int tests_passed = 0;
     int tests_total = 0;
 
-    // Test 1: NULL parameter checks for zc_write
+    // Test 1: NULL parameter checks for claim
     tests_total++;
     void *buf = NULL;
-    if (zc_write_to_shared_host_connection(NULL, &buf, 64) == SH_ERR_INVALID_PARAMETER) {
-        printf(" [PASS] Test 1: zc_write NULL connection parameter validation\n");
+    if (claim_from_shared_host_connection(NULL, &buf, 64) == SH_ERR_INVALID_PARAMETER) {
+        printf(" [PASS] Test 1: claim NULL connection parameter validation\n");
         tests_passed++;
     } else {
-        printf(" [FAIL] Test 1: zc_write parameter validation failed\n");
+        printf(" [FAIL] Test 1: claim parameter validation failed\n");
     }
 
-    // Test 2: NULL buffer pointer check for zc_write
+    // Test 2: NULL buffer pointer check for claim
     tests_total++;
     shared_host_connection* dummy_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-    if (zc_write_to_shared_host_connection(dummy_conn, NULL, 64) == SH_ERR_INVALID_PARAMETER) {
-        printf(" [PASS] Test 2: zc_write NULL buffer pointer validation\n");
+    if (claim_from_shared_host_connection(dummy_conn, NULL, 64) == SH_ERR_INVALID_PARAMETER) {
+        printf(" [PASS] Test 2: claim NULL buffer pointer validation\n");
         tests_passed++;
     } else {
-        printf(" [FAIL] Test 2: zc_write NULL buffer pointer check failed\n");
+        printf(" [FAIL] Test 2: claim NULL buffer pointer check failed\n");
     }
     free(dummy_conn);
 
-    // Test 3: NULL parameter checks for zc_send
+    // Test 3: NULL parameter checks for commit
     tests_total++;
-    if (zc_send_to_shared_host_connection(NULL) == SH_ERR_INVALID_PARAMETER) {
-        printf(" [PASS] Test 3: zc_send parameter validation\n");
+    if (commit_to_shared_host_connection(NULL) == SH_ERR_INVALID_PARAMETER) {
+        printf(" [PASS] Test 3: commit parameter validation\n");
         tests_passed++;
     } else {
-        printf(" [FAIL] Test 3: zc_send parameter validation failed\n");
+        printf(" [FAIL] Test 3: commit parameter validation failed\n");
     }
 
     // Test 4: Zero-size write check
@@ -251,14 +258,14 @@ void run_zc_unit_tests(void) {
     int err1 = create_shared_host_connection("zc_test_port", (char)SH_FAST_CONNECTION, server_conn);
     size_t size = 0;
     int err2 = connect_to_shared_host_connection("zc_test_port", &size, client_conn);
-    
+
     if (err1 == SH_OK && err2 == SH_OK) {
         void *tx_buf = NULL;
-        if (zc_write_to_shared_host_connection(client_conn, &tx_buf, 0) == SH_ERR_INVALID_PARAMETER) {
-            printf(" [PASS] Test 4: zc_write zero-size validation\n");
+        if (claim_from_shared_host_connection(client_conn, &tx_buf, 0) == SH_ERR_INVALID_PARAMETER) {
+            printf(" [PASS] Test 4: claim zero-size validation\n");
             tests_passed++;
         } else {
-            printf(" [FAIL] Test 4: zc_write zero-size check failed\n");
+            printf(" [FAIL] Test 4: claim zero-size check failed\n");
         }
         close_shared_host_connection(server_conn);
         close_shared_host_connection(client_conn);
@@ -269,7 +276,7 @@ void run_zc_unit_tests(void) {
         free(client_conn);
     }
 
-    // Test 5: End-to-end message exchange using zc_write and zc_send (Client to Server)
+    // Test 5: End-to-end message exchange using claim and commit (Client to Server)
     tests_total++;
     server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
@@ -278,25 +285,26 @@ void run_zc_unit_tests(void) {
 
     if (err1 == SH_OK && err2 == SH_OK) {
         void *tx_buf = NULL;
-        sh_result_t write_res = zc_write_to_shared_host_connection(client_conn, &tx_buf, 128);
+        sh_result_t write_res = claim_from_shared_host_connection(client_conn, &tx_buf, 128);
         if (write_res == SH_OK && tx_buf != NULL) {
             memset(tx_buf, 0x42, 128);
-            sh_result_t send_res = zc_send_to_shared_host_connection(client_conn);
+            sh_result_t send_res = commit_to_shared_host_connection(client_conn);
             if (send_res == SH_OK) {
                 void *rx_buf = NULL;
                 size_t rx_size = 0;
                 sh_result_t read_res = read_from_shared_host_connection(server_conn, &rx_buf, &rx_size);
                 if (read_res == SH_OK && rx_size == 128 && ((char*)rx_buf)[0] == 0x42 && ((char*)rx_buf)[127] == 0x42) {
-                    printf(" [PASS] Test 5: zc_write/zc_send end-to-end data exchange\n");
+                    printf(" [PASS] Test 5: claim/commit end-to-end data exchange\n");
                     tests_passed++;
                 } else {
                     printf(" [FAIL] Test 5: Read back data mismatch (res=%d, size=%zu)\n", read_res, rx_size);
                 }
+                if (rx_buf) free(rx_buf);
             } else {
-                printf(" [FAIL] Test 5: Client zc_send failed (%d)\n", send_res);
+                printf(" [FAIL] Test 5: Client commit failed (%d)\n", send_res);
             }
         } else {
-            printf(" [FAIL] Test 5: Client zc_write failed (%d)\n", write_res);
+            printf(" [FAIL] Test 5: Client claim failed (%d)\n", write_res);
         }
         close_shared_host_connection(server_conn);
         close_shared_host_connection(client_conn);
@@ -306,22 +314,22 @@ void run_zc_unit_tests(void) {
         free(client_conn);
     }
 
-    // Test 6: Multiple sequential zc_write behavior
+    // Test 6: Multiple sequential claim behavior
     tests_total++;
     server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     err1 = create_shared_host_connection("zc_test_port3", (char)SH_FAST_CONNECTION, server_conn);
     err2 = connect_to_shared_host_connection("zc_test_port3", &size, client_conn);
-    
+
     if (err1 == SH_OK && err2 == SH_OK) {
         void *buf1 = NULL, *buf2 = NULL;
-        sh_result_t res1 = zc_write_to_shared_host_connection(client_conn, &buf1, 64);
-        sh_result_t res2 = zc_write_to_shared_host_connection(client_conn, &buf2, 64);
+        sh_result_t res1 = claim_from_shared_host_connection(client_conn, &buf1, 64);
+        sh_result_t res2 = claim_from_shared_host_connection(client_conn, &buf2, 64);
         // Just check that the calls don't crash - behavior is implementation-specific
-        printf(" [PASS] Test 6: Multiple zc_write calls completed (res1=%d, res2=%d)\n", res1, res2);
+        printf(" [PASS] Test 6: Multiple claim calls completed (res1=%d, res2=%d)\n", res1, res2);
         tests_passed++;
         // Cleanup - send if first write succeeded
-        if (res1 == SH_OK) zc_send_to_shared_host_connection(client_conn);
+        if (res1 == SH_OK) commit_to_shared_host_connection(client_conn);
         close_shared_host_connection(server_conn);
         close_shared_host_connection(client_conn);
     } else {
@@ -332,6 +340,38 @@ void run_zc_unit_tests(void) {
     }
 
     printf("\n  -> Zero-Copy Unit Tests Summary: %d / %d Passed\n\n", tests_passed, tests_total);
+}
+
+static inline sh_result_t safe_write_diag(shared_host_connection *connection, void *buffer, size_t buffer_size) {
+    sh_result_t res;
+    uint64_t retries = 0;
+    while ((res = write_to_shared_host_connection(connection, buffer, buffer_size)) != SH_OK) {
+        _mm_pause();
+        retries++;
+        if (retries == 50000000ULL) {
+            size_t w_off = connection->own_shared_connection_header->last_item_offset;
+            size_t r_off = connection->opp_shared_connection_header->current_item_offset;
+            printf("\n[CLIENT DIAGNOSTIC WARNING] write_to_shared_host_connection stuck returning %s (%d)! w_off=%zu, r_off=%zu, payload_sz=%zu\n",
+                   error_to_string(res), res, w_off, r_off, buffer_size);
+        }
+    }
+    return res;
+}
+
+static inline sh_result_t safe_claim_diag(shared_host_connection *connection, void **buf, size_t buffer_size) {
+    sh_result_t res;
+    uint64_t retries = 0;
+    while ((res = claim_from_shared_host_connection(connection, buf, buffer_size)) != SH_OK) {
+        _mm_pause();
+        retries++;
+        if (retries == 50000000ULL) {
+            size_t w_off = connection->own_shared_connection_header->last_item_offset;
+            size_t r_off = connection->opp_shared_connection_header->current_item_offset;
+            printf("\n[CLIENT DIAGNOSTIC WARNING] claim_from_shared_host_connection stuck returning %s (%d)! w_off=%zu, r_off=%zu, payload_sz=%zu\n",
+                   error_to_string(res), res, w_off, r_off, buffer_size);
+        }
+    }
+    return res;
 }
 
 // =============================================================================
@@ -358,8 +398,8 @@ void run_benchmark_client(sh_connection_type mode, int use_zero_copy, const char
     for (int i = 0; i < 100; i++) {
         if (use_zero_copy) {
             void *buf = NULL;
-            if (zc_write_to_shared_host_connection(connection, &buf, 64) == SH_OK) {
-                zc_send_to_shared_host_connection(connection);
+            if (claim_from_shared_host_connection(connection, &buf, 64) == SH_OK) {
+                commit_to_shared_host_connection(connection);
             }
         } else {
             write_to_shared_host_connection(connection, warmup_payload, 64);
@@ -373,15 +413,11 @@ void run_benchmark_client(sh_connection_type mode, int use_zero_copy, const char
     for (int i = 0; i < LATENCY_SAMPLES; i++) {
         if (use_zero_copy) {
             void *buf = NULL;
-            while (zc_write_to_shared_host_connection(connection, &buf, 64) != SH_OK) {
-                _mm_pause();
-            }
+            safe_claim_diag(connection, &buf, 64);
             memset(buf, 0, 64);
-            zc_send_to_shared_host_connection(connection);
+            commit_to_shared_host_connection(connection);
         } else {
-            while (write_to_shared_host_connection(connection, payload_64b, 64) != SH_OK) {
-                _mm_pause();
-            }
+            safe_write_diag(connection, payload_64b, 64);
         }
     }
 
@@ -394,20 +430,16 @@ void run_benchmark_client(sh_connection_type mode, int use_zero_copy, const char
         if (use_zero_copy) {
             for (int i = 0; i < SWEEP_ITERATIONS; i++) {
                 void *buf = NULL;
-                while (zc_write_to_shared_host_connection(connection, &buf, current_size) != SH_OK) {
-                    _mm_pause();
-                }
+                safe_claim_diag(connection, &buf, current_size);
                 memset(buf, 0xAB, current_size);
-                zc_send_to_shared_host_connection(connection);
+                commit_to_shared_host_connection(connection);
             }
         } else {
             char* sweep_buf = (char*) _aligned_malloc(current_size, 64);
             memset(sweep_buf, 0xAB, current_size);
 
             for (int i = 0; i < SWEEP_ITERATIONS; i++) {
-                while (write_to_shared_host_connection(connection, sweep_buf, current_size) != SH_OK) {
-                    _mm_pause();
-                }
+                safe_write_diag(connection, sweep_buf, current_size);
             }
             _aligned_free(sweep_buf);
         }
@@ -425,30 +457,33 @@ void run_benchmark_client(sh_connection_type mode, int use_zero_copy, const char
 
         if (use_zero_copy) {
             void *buf = NULL;
-            while (zc_write_to_shared_host_connection(connection, &buf, packet_size) != SH_OK) {
-                _mm_pause();
-            }
+            safe_claim_diag(connection, &buf, packet_size);
             *(uint64_t*)buf = (uint64_t)i;
 
             uint32_t data_seed = (uint32_t)i;
-            uint8_t *byte_buf = (uint8_t*)buf;
-            for (size_t b = 8; b < packet_size; b++) {
-                byte_buf[b] = (uint8_t)(xorshift32(&data_seed) & 0xFF);
+            uint64_t *word_buf = (uint64_t*)((char*)buf + 8);
+            size_t num_words = (packet_size - 8) / sizeof(uint64_t);
+            for (size_t w = 0; w < num_words; w++) {
+                uint32_t p1 = xorshift32(&data_seed);
+                uint32_t p2 = xorshift32(&data_seed);
+                word_buf[w] = ((uint64_t)p1 << 32) | p2;
             }
-            zc_send_to_shared_host_connection(connection);
+            commit_to_shared_host_connection(connection);
         } else {
             // Embed sequence
             *(uint64_t*)dynamic_payload = (uint64_t)i;
 
             // Populate pseudo-random bytes
             uint32_t data_seed = (uint32_t)i;
-            for (size_t b = 8; b < packet_size; b++) {
-                dynamic_payload[b] = (uint8_t)(xorshift32(&data_seed) & 0xFF);
+            uint64_t *word_buf = (uint64_t*)(dynamic_payload + 8);
+            size_t num_words = (packet_size - 8) / sizeof(uint64_t);
+            for (size_t w = 0; w < num_words; w++) {
+                uint32_t p1 = xorshift32(&data_seed);
+                uint32_t p2 = xorshift32(&data_seed);
+                word_buf[w] = ((uint64_t)p1 << 32) | p2;
             }
 
-            while (write_to_shared_host_connection(connection, dynamic_payload, packet_size) != SH_OK) {
-                _mm_pause();
-            }
+            safe_write_diag(connection, dynamic_payload, packet_size);
         }
     }
 
@@ -460,30 +495,30 @@ void run_benchmark_client(sh_connection_type mode, int use_zero_copy, const char
 // =============================================================================
 void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const char *port_name, function_timing_t *timing) {
     memset(timing, 0, sizeof(function_timing_t));
-    
+
     shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-    
+
     if (create_shared_host_connection(port_name, (char)mode, server) != SH_OK) {
         printf("[TIMING] Failed to create server\n");
         return;
     }
-    
+
     size_t conn_size = 0;
     if (connect_to_shared_host_connection(port_name, &conn_size, client) != SH_OK) {
         printf("[TIMING] Failed to connect client\n");
         close_shared_host_connection(server);
         return;
     }
-    
+
     LARGE_INTEGER freq, start, end;
     QueryPerformanceFrequency(&freq);
-    
+
     const int NUM_ITERATIONS = 10000;
     double write_total = 0, read_total = 0, zc_write_total = 0, zc_send_total = 0;
     void* buffer;
     size_t buffer_size;
-    
+
     // Time write function
     char payload[64] = {0};
     for (int i = 0; i < NUM_ITERATIONS; i++) {
@@ -491,62 +526,66 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
         write_to_shared_host_connection(client, payload, 64);
         QueryPerformanceCounter(&end);
         write_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
-        
+
         // Drain server
         while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+        if (buffer) free(buffer);
     }
     timing->write_ns = write_total / NUM_ITERATIONS;
-    
+
     // Time read function (server side)
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         // Send from client first
         while (write_to_shared_host_connection(client, payload, 64) != SH_OK) _mm_pause();
-        
+
         QueryPerformanceCounter(&start);
         while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
         QueryPerformanceCounter(&end);
         read_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
+        if (buffer) free(buffer);
     }
     timing->read_ns = read_total / NUM_ITERATIONS;
-    
+
     if (use_zero_copy) {
         // Time zc_write function
         for (int i = 0; i < NUM_ITERATIONS; i++) {
             void* zc_buf = NULL;
             QueryPerformanceCounter(&start);
-            zc_write_to_shared_host_connection(client, &zc_buf, 64);
+            claim_from_shared_host_connection(client, &zc_buf, 64);
             QueryPerformanceCounter(&end);
             zc_write_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
-            zc_send_to_shared_host_connection(client);
+            commit_to_shared_host_connection(client);
             while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+            if (buffer) free(buffer);
         }
         timing->zc_write_ns = zc_write_total / NUM_ITERATIONS;
-        
+
         // Time zc_send function
         for (int i = 0; i < NUM_ITERATIONS; i++) {
             void* zc_buf = NULL;
-            zc_write_to_shared_host_connection(client, &zc_buf, 64);
+            claim_from_shared_host_connection(client, &zc_buf, 64);
             QueryPerformanceCounter(&start);
-            zc_send_to_shared_host_connection(client);
+            commit_to_shared_host_connection(client);
             QueryPerformanceCounter(&end);
             zc_send_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
             while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+            if (buffer) free(buffer);
         }
         timing->zc_send_ns = zc_send_total / NUM_ITERATIONS;
     }
-    
+
     // Calculate roundtrip
     timing->roundtrip_ns = timing->write_ns + timing->read_ns;
-    
+
     printf("\n[PER-FUNCTION TIMING]\n");
     printf("  write_to_shared_host_connection:  %.1f ns\n", timing->write_ns);
     printf("  read_from_shared_host_connection:  %.1f ns\n", timing->read_ns);
     if (use_zero_copy) {
-        printf("  zc_write_to_shared_host_connection: %.1f ns\n", timing->zc_write_ns);
-        printf("  zc_send_to_shared_host_connection:  %.1f ns\n", timing->zc_send_ns);
+        printf("  claim_from_shared_host_connection: %.1f ns\n", timing->zc_write_ns);
+        printf("  commit_to_shared_host_connection:  %.1f ns\n", timing->zc_send_ns);
     }
     printf("  Estimated roundtrip:              %.1f ns\n", timing->roundtrip_ns);
-    
+
     close_shared_host_connection(server);
     close_shared_host_connection(client);
 }
