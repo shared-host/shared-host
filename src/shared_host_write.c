@@ -90,14 +90,11 @@ sh_result_t write_to_shared_host_connection_slow(shared_host_connection *connect
 		   buffer_size); // this copies the buffer to the current item address +
 						 // 2*sizeof(size_t) for headers
 
-    #ifdef _WIN32
-    if (connection->opp_shared_connection_header->last_item_offset == connection->opp_shared_connection_header->current_item_offset) {
-       	SetEvent(connection->opp_event_handle);
-    }
-    #endif // this event can be sent before the last_item_offset update, because the read function doesnt use last_item_offset after the event is recieved
-
 	__atomic_store_n(&connection->opp_shared_connection_header->last_item_offset, current_item_offset, __ATOMIC_RELEASE); // should compile to a single mov in amd64 because of TSO, but for arm it should compile to STLR
 
+    #ifdef _WIN32
+    SetEvent(connection->opp_event_handle);
+    #endif // this event can be sent before the last_item_offset update, because the read function doesnt use last_item_offset after the event is recieved
 
 	return SH_OK;
 }
