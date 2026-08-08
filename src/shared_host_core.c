@@ -1,0 +1,326 @@
+#include <internal/shm_mapping.h>
+#include <shared_host.h>
+#include <memoryapi.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <wingdi.h>
+#include <winnt.h>
+#include <windows.h>
+#endif
+
+sh_result_t create_shared_host_connection(const char *port, char flags, shared_host_connection *out_connection) {
+	if (port == NULL || out_connection == NULL) {
+		return SH_ERR_INVALID_PARAMETER;
+	}
+
+	sh_result_t result = SH_OK;
+	size_t size = 1 SH_GB;
+	HANDLE settingsBufferHandle = NULL;
+	void *settingsBuffer = NULL;
+
+	// settings buffer
+
+	char *settings_name;
+	sh_result_t settings_name_result = format_unique_name(port, "settings", strlen(port) + strlen("settings"), &settings_name);
+
+	if (settings_name_result != SH_OK) {
+		return settings_name_result;
+	}
+
+	result = sh_create_shared_memory(settings_name, sizeof(shared_host_shared_settings_header) + sizeof(shared_host_shared_connection_header) * 2, &settingsBufferHandle, &settingsBuffer);
+	free(settings_name);
+
+	if (result != SH_OK) {
+		return result;
+	}
+
+	shared_host_shared_settings_header *settings_header = (shared_host_shared_settings_header *)settingsBuffer;
+	settings_header->size = size;
+
+	// settings manager
+	if ((flags & 1) == SH_SLOW_CONNECTION) {
+		out_connection->read = read_from_shared_host_connection_slow;
+		out_connection->write = write_to_shared_host_connection_slow;
+		out_connection->send = zc_send_to_shared_host_connection_slow;
+		settings_header->connection_type = SH_SLOW_CONNECTION;
+	} else if ((flags & 1) == SH_FAST_CONNECTION) {
+		out_connection->read = read_from_shared_host_connection_fast;
+		out_connection->write = write_to_shared_host_connection_fast;
+		out_connection->send = zc_send_to_shared_host_connection_fast;
+		settings_header->connection_type = SH_FAST_CONNECTION;
+	}
+
+	HANDLE ownBufferHandle = NULL;
+	void *ownBuffer = NULL;
+
+	// own buffer
+
+	char *own_buffer_name;
+	sh_result_t own_buffer_name_result = format_unique_name(port, "own_buffer", strlen(port) + strlen("own_buffer"), &own_buffer_name);
+	if (own_buffer_name_result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		return own_buffer_name_result;
+	}
+
+	result = sh_create_shared_memory(own_buffer_name, size, &ownBufferHandle, &ownBuffer);
+	free(own_buffer_name);
+
+	if (result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		return result;
+	}
+
+	// opp buffer
+
+	HANDLE oppBufferHandle = NULL;
+	void *oppBuffer = NULL;
+
+	char *opp_buffer_name;
+	sh_result_t opp_buffer_name_result = format_unique_name(port, "opp_buffer", strlen(port) + strlen("opp_buffer"), &opp_buffer_name);
+	if (opp_buffer_name_result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		UnmapViewOfFile(ownBuffer);
+		CloseHandle(ownBufferHandle);
+		return opp_buffer_name_result;
+	}
+
+	result = sh_create_shared_memory(opp_buffer_name, size, &oppBufferHandle, &oppBuffer);
+	free(opp_buffer_name);
+
+	if (result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		UnmapViewOfFile(ownBuffer);
+		CloseHandle(ownBufferHandle);
+		return result;
+	}
+
+	out_connection->shared_settings_page_handle = settingsBufferHandle;
+	out_connection->own_shared_connection_buffer_handle = ownBufferHandle;
+	out_connection->opp_shared_connection_buffer_handle = oppBufferHandle;
+
+	out_connection->shared_settings_page_ptr = settingsBuffer;
+	out_connection->own_shared_connection_header = (shared_host_shared_connection_header *)(((char *)settingsBuffer) + sizeof(shared_host_shared_settings_header));
+	out_connection->opp_shared_connection_header = out_connection->own_shared_connection_header + 1;
+
+	out_connection->own_page_start = ownBuffer;
+	out_connection->opp_page_start = oppBuffer;
+
+	out_connection->own_shared_connection_header->current_item_offset = 0;
+	out_connection->own_shared_connection_header->last_item_offset = 0;
+
+	// events
+
+	char *own_event_name;
+	sh_result_t own_event_name_result = format_unique_name(port, "own_event", strlen(port) + strlen("own_event"), &own_event_name);
+	if (own_event_name_result != SH_OK) {
+		return own_event_name_result;
+	}
+
+	char *opp_event_name;
+	sh_result_t opp_event_name_result = format_unique_name(port, "opp_event", strlen(port) + strlen("opp_event"), &opp_event_name);
+	if (opp_event_name_result != SH_OK) {
+		free(own_event_name);
+		return opp_event_name_result;
+	}
+
+	sh_result_t own_event_result = create_windows_event(own_event_name, &out_connection->own_event_handle);
+	if (own_event_result != SH_OK) {
+		free(own_event_name);
+		free(opp_event_name);
+		return own_event_result;
+	}
+	free(own_event_name);
+
+	sh_result_t opp_event_result = create_windows_event(opp_event_name, &out_connection->opp_event_handle);
+	if (opp_event_result != SH_OK) {
+		free(opp_event_name);
+		return opp_event_result;
+	}
+	free(opp_event_name);
+
+	write_to_shared_host_connection(out_connection, "hello", 6);
+
+	return SH_OK;
+}
+
+
+
+sh_result_t connect_to_shared_host_connection(const char *port, size_t *size, shared_host_connection *out_connection) {
+	sh_result_t result = SH_OK;
+
+	HANDLE settingsBufferHandle = NULL;
+	void *settingsBuffer = NULL;
+
+	char *settings_name;
+	sh_result_t settings_name_result = format_unique_name(port, "settings", strlen(port) + strlen("settings"), &settings_name);
+	if (settings_name_result != SH_OK) {
+		return settings_name_result;
+	}
+
+	*size = sizeof(shared_host_shared_settings_header) + sizeof(shared_host_shared_connection_header) * 2;
+
+	result = sh_connect_to_shared_memory(settings_name, *size, &settingsBufferHandle, &settingsBuffer);
+	free(settings_name);
+
+	if (result != SH_OK) {
+		return result;
+	}
+
+	shared_host_shared_settings_header *settings_header = (shared_host_shared_settings_header *)settingsBuffer;
+	*size = settings_header->size;
+
+	// settings manager
+	if ((settings_header->connection_type & 1) == SH_SLOW_CONNECTION) {
+    	out_connection->read = read_from_shared_host_connection_slow;
+    	out_connection->write = write_to_shared_host_connection_slow;
+    	out_connection->send = zc_send_to_shared_host_connection_slow;
+	} else if ((settings_header->connection_type & 1) == SH_FAST_CONNECTION) {
+    	out_connection->read = read_from_shared_host_connection_fast;
+    	out_connection->write = write_to_shared_host_connection_fast;
+    	out_connection->send = zc_send_to_shared_host_connection_fast;
+	}
+
+	HANDLE ownBufferHandle = NULL;
+	void *ownBuffer = NULL;
+
+	char *own_buffer_name;
+	sh_result_t own_buffer_name_result = format_unique_name(port, "opp_buffer", strlen(port) + strlen("opp_buffer"), &own_buffer_name);
+	if (own_buffer_name_result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		return own_buffer_name_result;
+	}
+
+	result = sh_connect_to_shared_memory(own_buffer_name, *size, &ownBufferHandle, &ownBuffer);
+	free(own_buffer_name);
+
+	if (result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		return result;
+	}
+
+	HANDLE oppBufferHandle = NULL;
+	void *oppBuffer = NULL;
+
+	char *opp_buffer_name = NULL;
+	sh_result_t opp_buffer_name_result = format_unique_name(port, "own_buffer", strlen(port) + strlen("own_buffer"), &opp_buffer_name);
+	if (opp_buffer_name_result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		UnmapViewOfFile(ownBuffer);
+		CloseHandle(ownBufferHandle);
+		return opp_buffer_name_result;
+	}
+
+	result = sh_connect_to_shared_memory(opp_buffer_name, *size, &oppBufferHandle, &oppBuffer);
+	free(opp_buffer_name);
+
+	if (result != SH_OK) {
+		UnmapViewOfFile(settingsBuffer);
+		CloseHandle(settingsBufferHandle);
+		UnmapViewOfFile(ownBuffer);
+		CloseHandle(ownBufferHandle);
+		return result;
+	}
+
+	out_connection->shared_settings_page_handle = settingsBufferHandle;
+	out_connection->own_shared_connection_buffer_handle = ownBufferHandle;
+	out_connection->opp_shared_connection_buffer_handle = oppBufferHandle;
+
+	out_connection->shared_settings_page_ptr = settingsBuffer;
+	out_connection->opp_shared_connection_header = (shared_host_shared_connection_header *)(((char *)settingsBuffer) + sizeof(shared_host_shared_settings_header));
+	out_connection->own_shared_connection_header = out_connection->opp_shared_connection_header + 1;
+
+	out_connection->own_page_start = ownBuffer;
+	out_connection->opp_page_start = oppBuffer;
+
+	out_connection->own_shared_connection_header->current_item_offset = 0;
+	out_connection->own_shared_connection_header->last_item_offset = 0;
+
+	// events
+
+	char *own_event_name;
+	sh_result_t own_event_name_result = format_unique_name(port, "opp_event", strlen(port) + strlen("opp_event"), &own_event_name);
+	if (own_event_name_result != SH_OK) {
+		return own_event_name_result;
+	}
+
+	char *opp_event_name;
+	sh_result_t opp_event_name_result = format_unique_name(port, "own_event", strlen(port) + strlen("own_event"), &opp_event_name);
+	if (opp_event_name_result != SH_OK) {
+		free(own_event_name);
+		return opp_event_name_result;
+	}
+
+	sh_result_t own_event_result = connect_to_windows_event(opp_event_name, &out_connection->opp_event_handle);
+	if (own_event_result != SH_OK) {
+		free(own_event_name);
+		free(opp_event_name);
+		return own_event_result;
+	}
+	free(opp_event_name);
+
+	sh_result_t opp_event_result = connect_to_windows_event(own_event_name, &out_connection->own_event_handle);
+	if (opp_event_result != SH_OK) {
+		free(own_event_name);
+		return opp_event_result;
+	}
+
+	free(own_event_name);
+
+	write_to_shared_host_connection(out_connection, "hello", 6);
+
+	return SH_OK;
+}
+
+sh_result_t close_shared_host_connection(shared_host_connection *connection) {
+	if (connection == NULL) {
+		return SH_ERR_CONNECTION_CLOSED;
+	}
+
+	UnmapViewOfFile(connection->own_page_start);
+	UnmapViewOfFile(connection->opp_page_start);
+	UnmapViewOfFile(connection->shared_settings_page_ptr);
+	CloseHandle(connection->shared_settings_page_handle);
+	CloseHandle(connection->own_shared_connection_buffer_handle);
+	CloseHandle(connection->opp_shared_connection_buffer_handle);
+	CloseHandle(connection->own_event_handle);
+	CloseHandle(connection->opp_event_handle);
+
+	free(connection);
+
+	return SH_OK;
+}
+
+char *error_to_string(sh_result_t result) {
+	switch (result) {
+	case SH_OK:
+		return "SH_OK";
+	case SH_ERR_INVALID_PARAMETER:
+		return "SH_ERR_INVALID_PARAMETER";
+	case SH_ERR_OOM:
+		return "SH_ERR_OOM";
+	case SH_ERR_INVALID_PORT:
+		return "SH_ERR_INVALID_PORT";
+	case SH_ERR_MESSAGE_TOO_LONG:
+		return "SH_ERR_MESSAGE_TOO_LONG";
+	case SH_ERR_CONNECTION_CLOSED:
+		return "SH_ERR_CONNECTION_CLOSED";
+	case SH_ERR_CONNECTION_OWNED:
+		return "SH_ERR_CONNECTION_OWNED";
+	case SH_ERR_CONNECTION_NOT_OWNED:
+		return "SH_ERR_CONNECTION_NOT_OWNED";
+	case SH_ERR_UNKNOWN:
+		return "SH_ERR_UNKNOWN";
+	default:
+		return "Unknown error";
+	}
+}
