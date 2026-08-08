@@ -45,10 +45,10 @@ sh_result_t read_from_shared_host_connection_slow(shared_host_connection *connec
 		return SH_ERR_INVALID_PARAMETER;
 	}
 
-	if (connection->own_shared_connection_header->current_item_offset == connection->own_shared_connection_header->last_item_offset) {
-#ifdef _WIN32
-  		WaitForSingleObject(connection->own_event_handle, INFINITE);
-  #endif
+	while (connection->own_shared_connection_header->current_item_offset == __atomic_load_n(&connection->own_shared_connection_header->last_item_offset, __ATOMIC_ACQUIRE)) {
+	#ifdef _WIN32
+		WaitForSingleObject(connection->own_event_handle, INFINITE);
+	#endif
 	}
 
 	void *current_item_address = (void *)((char *)connection->own_page_start + connection->own_shared_connection_header->current_item_offset);
