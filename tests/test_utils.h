@@ -59,8 +59,10 @@ typedef struct {
 typedef struct {
     double write_ns;       // write_to_shared_host_connection avg time
     double read_ns;        // read_from_shared_host_connection avg time
-    double zc_write_ns;    // zc_write_to_sared_host_connection avg time
-    double zc_send_ns;     // zc_send_to_shared_host_connection avg time
+    double zc_write_ns;    // claim_from_shared_host_connection avg time
+    double zc_send_ns;     // commit_to_shared_host_connection avg time
+    double receive_ns;     // receive_from_shared_host_connection avg time
+    double release_ns;     // release_to_shared_host_connection avg time
     double roundtrip_ns;   // Full write+read cycle
 } function_timing_t;
 

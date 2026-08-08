@@ -592,11 +592,11 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
     QueryPerformanceFrequency(&freq);
 
     const int NUM_ITERATIONS = 10000;
-    double write_total = 0, read_total = 0, zc_write_total = 0, zc_send_total = 0;
+    double write_total = 0, read_total = 0, zc_write_total = 0, zc_send_total = 0, receive_total = 0, release_total = 0;
     void* buffer;
     size_t buffer_size;
 
-    // Time write function
+    // Time write_to_shared_host_connection
     char payload[64] = {0};
     for (int i = 0; i < NUM_ITERATIONS; i++) {
         QueryPerformanceCounter(&start);
@@ -604,15 +604,13 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
         QueryPerformanceCounter(&end);
         write_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
 
-        // Drain server
         while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
         if (buffer) free(buffer);
     }
     timing->write_ns = write_total / NUM_ITERATIONS;
 
-    // Time read function (server side)
+    // Time read_from_shared_host_connection
     for (int i = 0; i < NUM_ITERATIONS; i++) {
-        // Send from client first
         while (write_to_shared_host_connection(client, payload, 64) != SH_OK) _mm_pause();
 
         QueryPerformanceCounter(&start);
@@ -624,20 +622,21 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
     timing->read_ns = read_total / NUM_ITERATIONS;
 
     if (use_zero_copy) {
-        // Time zc_write function
+        // Time claim_from_shared_host_connection
         for (int i = 0; i < NUM_ITERATIONS; i++) {
             void* zc_buf = NULL;
             QueryPerformanceCounter(&start);
             claim_from_shared_host_connection(client, &zc_buf, 64);
             QueryPerformanceCounter(&end);
             zc_write_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
+
             commit_to_shared_host_connection(client);
-            while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
-            if (buffer) free(buffer);
+            while (receive_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+            release_to_shared_host_connection(server);
         }
         timing->zc_write_ns = zc_write_total / NUM_ITERATIONS;
 
-        // Time zc_send function
+        // Time commit_to_shared_host_connection
         for (int i = 0; i < NUM_ITERATIONS; i++) {
             void* zc_buf = NULL;
             claim_from_shared_host_connection(client, &zc_buf, 64);
@@ -645,23 +644,54 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
             commit_to_shared_host_connection(client);
             QueryPerformanceCounter(&end);
             zc_send_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
-            while (read_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
-            if (buffer) free(buffer);
+
+            while (receive_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+            release_to_shared_host_connection(server);
         }
         timing->zc_send_ns = zc_send_total / NUM_ITERATIONS;
+
+        // Time receive_from_shared_host_connection
+        for (int i = 0; i < NUM_ITERATIONS; i++) {
+            void* zc_buf = NULL;
+            claim_from_shared_host_connection(client, &zc_buf, 64);
+            commit_to_shared_host_connection(client);
+
+            QueryPerformanceCounter(&start);
+            while (receive_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+            QueryPerformanceCounter(&end);
+            receive_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
+
+            release_to_shared_host_connection(server);
+        }
+        timing->receive_ns = receive_total / NUM_ITERATIONS;
+
+        // Time release_to_shared_host_connection
+        for (int i = 0; i < NUM_ITERATIONS; i++) {
+            void* zc_buf = NULL;
+            claim_from_shared_host_connection(client, &zc_buf, 64);
+            commit_to_shared_host_connection(client);
+            while (receive_from_shared_host_connection(server, &buffer, &buffer_size) != SH_OK) _mm_pause();
+
+            QueryPerformanceCounter(&start);
+            release_to_shared_host_connection(server);
+            QueryPerformanceCounter(&end);
+            release_total += ticks_to_ns(end.QuadPart - start.QuadPart, freq);
+        }
+        timing->release_ns = release_total / NUM_ITERATIONS;
     }
 
-    // Calculate roundtrip
     timing->roundtrip_ns = timing->write_ns + timing->read_ns;
 
-    printf("\n[PER-FUNCTION TIMING]\n");
-    printf("  write_to_shared_host_connection:  %.1f ns\n", timing->write_ns);
-    printf("  read_from_shared_host_connection:  %.1f ns\n", timing->read_ns);
+    printf("\n[PER-FUNCTION EXECUTION TIME BENCHMARK]\n");
+    printf("  write_to_shared_host_connection:   %.1f ns\n", timing->write_ns);
+    printf("  read_from_shared_host_connection:    %.1f ns\n", timing->read_ns);
     if (use_zero_copy) {
-        printf("  claim_from_shared_host_connection: %.1f ns\n", timing->zc_write_ns);
-        printf("  commit_to_shared_host_connection:  %.1f ns\n", timing->zc_send_ns);
+        printf("  claim_from_shared_host_connection:   %.1f ns\n", timing->zc_write_ns);
+        printf("  commit_to_shared_host_connection:    %.1f ns\n", timing->zc_send_ns);
+        printf("  receive_from_shared_host_connection: %.1f ns\n", timing->receive_ns);
+        printf("  release_to_shared_host_connection:   %.1f ns\n", timing->release_ns);
     }
-    printf("  Estimated roundtrip:              %.1f ns\n", timing->roundtrip_ns);
+    printf("\n");
 
     close_shared_host_connection(server);
     close_shared_host_connection(client);
