@@ -40,16 +40,15 @@ sh_result_t create_shared_host_connection(const char *port, char flags, shared_h
 	shared_host_shared_settings_header *settings_header = (shared_host_shared_settings_header *)settingsBuffer;
 	settings_header->size = size;
 
+   	out_connection->claim = claim_from_shared_host_connection;
 	// settings manager
 	if ((flags & 1) == SH_SLOW_CONNECTION) {
 		out_connection->read = read_from_shared_host_connection_slow;
 		out_connection->write = write_to_shared_host_connection_slow;
-		out_connection->send = zc_send_to_shared_host_connection_slow;
 		settings_header->connection_type = SH_SLOW_CONNECTION;
 	} else if ((flags & 1) == SH_FAST_CONNECTION) {
 		out_connection->read = read_from_shared_host_connection_fast;
 		out_connection->write = write_to_shared_host_connection_fast;
-		out_connection->send = zc_send_to_shared_host_connection_fast;
 		settings_header->connection_type = SH_FAST_CONNECTION;
 	}
 
@@ -177,14 +176,15 @@ sh_result_t connect_to_shared_host_connection(const char *port, size_t *size, sh
 	*size = settings_header->size;
 
 	// settings manager
+   	out_connection->claim = claim_from_shared_host_connection;
 	if ((settings_header->connection_type & 1) == SH_SLOW_CONNECTION) {
     	out_connection->read = read_from_shared_host_connection_slow;
     	out_connection->write = write_to_shared_host_connection_slow;
-    	out_connection->send = zc_send_to_shared_host_connection_slow;
+    	out_connection->commit = commit_to_shared_host_connection_slow;
 	} else if ((settings_header->connection_type & 1) == SH_FAST_CONNECTION) {
     	out_connection->read = read_from_shared_host_connection_fast;
     	out_connection->write = write_to_shared_host_connection_fast;
-    	out_connection->send = zc_send_to_shared_host_connection_fast;
+        out_connection->commit = commit_to_shared_host_connection_fast;
 	}
 
 	HANDLE ownBufferHandle = NULL;
