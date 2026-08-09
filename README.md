@@ -19,11 +19,6 @@ Basically a faster localhost-like communication method.
 
 #### FAST Mode (Spin-Lock Polling)
 ```text
-=================================================================
-         SHARED-HOST COMPREHENSIVE SUITE [FAST / SPIN-LOCK]        
-=================================================================
-
-[PHASE 1] Running Latency & Jitter Distribution (1000000 samples)...
   -> Min Latency:    0.0 ns
   -> Avg Latency:    46.9 ns
   -> P50 (Median):   0.0 ns
@@ -31,7 +26,6 @@ Basically a faster localhost-like communication method.
   -> P99.9 Latency:  1300.0 ns
   -> Max Latency:    116800.0 ns
 
-[PHASE 2] Executing Payload Size Sweep (50000 ops per size)...
  Payload |    Throughput |   Payload BW |      Wire BW |   Avg Latency
 ---------+---------------+--------------+--------------+--------------
      64B |  22068235/s |  1346.94 MB/s |  1683.67 MB/s |     46.9 ns
@@ -41,21 +35,11 @@ Basically a faster localhost-like communication method.
   16384B |    239857/s |  3747.77 MB/s |  3751.43 MB/s |   4169.1 ns
   65536B |    212959/s | 13309.95 MB/s | 13313.20 MB/s |   4695.8 ns
 
-[PHASE 3] Running Variable-Size Integrity & Boundary Wrap Test (100000 ops)...
-  -> Sequence Corruptions:     0
-  -> Byte Content Corruptions: 0
-  -> Final Status:             PASSED (100% Valid)
-
 =================================================================
 ```
 
 #### SLOW Mode (Win32 Event Polling / Signaling)
 ```text
-=================================================================
-        SHARED-HOST COMPREHENSIVE SUITE [SLOW / EVENT-POLLING]    
-=================================================================
-
-[PHASE 1] Running Latency & Jitter Distribution (1000000 samples)...
   -> Min Latency:    0.0 ns
   -> Avg Latency:    345.4 ns
   -> P50 (Median):   100.0 ns
@@ -63,7 +47,6 @@ Basically a faster localhost-like communication method.
   -> P99.9 Latency:  8100.0 ns
   -> Max Latency:    246800.0 ns
 
-[PHASE 2] Executing Payload Size Sweep (50000 ops per size)...
  Payload |    Throughput |   Payload BW |      Wire BW |   Avg Latency
 ---------+---------------+--------------+--------------+--------------
      64B |  20340086/s |  1241.46 MB/s |  1551.83 MB/s |     49.2 ns
@@ -72,11 +55,6 @@ Basically a faster localhost-like communication method.
    4096B |    525950/s |  2054.49 MB/s |  2062.52 MB/s |   1901.3 ns
   16384B |    230770/s |  3605.78 MB/s |  3609.30 MB/s |   4333.3 ns
   65536B |    148696/s |  9293.48 MB/s |  9295.75 MB/s |   6725.1 ns
-
-[PHASE 3] Running Variable-Size Integrity & Boundary Wrap Test (100000 ops)...
-  -> Sequence Corruptions:     0
-  -> Byte Content Corruptions: 0
-  -> Final Status:             PASSED (100% Valid)
 
 =================================================================
 ```
