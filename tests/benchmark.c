@@ -11,7 +11,7 @@ void run_benchmark_server(sh_connection_type mode, int use_zero_copy, const char
              mode_to_string(mode), use_zero_copy ? " (ZC)" : "");
 
     shared_host_connection* connection = (shared_host_connection*) malloc(sizeof(shared_host_connection));
-    int error = create_shared_host_connection(port_name, (char)mode, connection);
+    int error = create_shared_host_connection(port_name, 1 SH_GB, (char)mode, connection);
     if (error != SH_OK) {
         printf("[SERVER-%s] Failed to create connection on port '%s': %s\n", results->mode_name, port_name, error_to_string(error));
         free(connection);
@@ -290,7 +290,7 @@ void run_zc_unit_tests(void) {
     tests_total++;
     shared_host_connection *server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     shared_host_connection *client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-    int err1 = create_shared_host_connection("zc_test_port", (char)SH_FAST_CONNECTION, server_conn);
+    int err1 = create_shared_host_connection("zc_test_port", 1 SH_GB, (char)SH_FAST_CONNECTION, server_conn);
     size_t size = 0;
     int err2 = connect_to_shared_host_connection("zc_test_port", &size, client_conn);
 
@@ -315,7 +315,7 @@ void run_zc_unit_tests(void) {
     tests_total++;
     server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-    err1 = create_shared_host_connection("zc_test_port2", (char)SH_FAST_CONNECTION, server_conn);
+    err1 = create_shared_host_connection("zc_test_port2", 1 SH_GB, (char)SH_FAST_CONNECTION, server_conn);
     err2 = connect_to_shared_host_connection("zc_test_port2", &size, client_conn);
 
     if (err1 == SH_OK && err2 == SH_OK) {
@@ -353,7 +353,7 @@ void run_zc_unit_tests(void) {
     tests_total++;
     server_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-    err1 = create_shared_host_connection("zc_test_port3", (char)SH_FAST_CONNECTION, server_conn);
+    err1 = create_shared_host_connection("zc_test_port3", 1 SH_GB, (char)SH_FAST_CONNECTION, server_conn);
     err2 = connect_to_shared_host_connection("zc_test_port3", &size, client_conn);
 
     if (err1 == SH_OK && err2 == SH_OK) {
@@ -378,7 +378,7 @@ void run_zc_unit_tests(void) {
     client_conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     char port8[64];
     snprintf(port8, sizeof(port8), "zc_t8_%lu", GetCurrentProcessId());
-    err1 = create_shared_host_connection(port8, (char)SH_FAST_CONNECTION, server_conn);
+    err1 = create_shared_host_connection(port8, 1 SH_GB, (char)SH_FAST_CONNECTION, server_conn);
     err2 = connect_to_shared_host_connection(port8, &size, client_conn);
 
     if (err1 == SH_OK && err2 == SH_OK) {
@@ -576,7 +576,7 @@ void run_function_timing_test(sh_connection_type mode, int use_zero_copy, const 
     shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
     shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
 
-    if (create_shared_host_connection(port_name, (char)mode, server) != SH_OK) {
+    if (create_shared_host_connection(port_name, 1 SH_GB, (char)mode, server) != SH_OK) {
         printf("[TIMING] Failed to create server\n");
         return;
     }

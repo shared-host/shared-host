@@ -1,7 +1,6 @@
 #include "test_utils.h"
 
 #include "test_utils.h"
-#include <math.h>
 
 // =============================================================================
 // COMPARISON TABLE: FAST vs SLOW side-by-side (ENHANCED)

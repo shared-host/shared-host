@@ -14,7 +14,7 @@ void test_wrap_around_step_by_step(void) {
     char port_name[64];
     snprintf(port_name, sizeof(port_name), "wrap_demo_%lu", GetCurrentProcessId());
 
-    sh_result_t res = create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, &server);
+    sh_result_t res = create_shared_host_connection(port_name, 1000, (char)SH_FAST_CONNECTION, &server);
     if (res != SH_OK) {
         printf("[DEMO] Failed to create server connection: %s\n", error_to_string(res));
         return;
@@ -28,11 +28,7 @@ void test_wrap_around_step_by_step(void) {
         return;
     }
 
-    // Override settings page ring buffer size to 1000 bytes for demonstration!
-    server.shared_settings_page_ptr->size = 1000;
-    client.shared_settings_page_ptr->size = 1000;
-
-    printf("Ring buffer size dynamically set to: %zu bytes\n", server.shared_settings_page_ptr->size);
+    printf("Ring buffer size dynamically set to: %zu bytes\n", conn_size);
     printf("Initial offsets: server current=%zu, last=%zu | client current=%zu, last=%zu\n\n",
            server.own_shared_connection_header->current_item_offset,
            server.own_shared_connection_header->last_item_offset,
@@ -115,7 +111,7 @@ void run_edge_case_tests(void) {
     // Test 1: NULL connection pointer check for create
     tests_total++;
     {
-        sh_result_t res = create_shared_host_connection("test_port", (char)SH_FAST_CONNECTION, NULL);
+        sh_result_t res = create_shared_host_connection("test_port", 1 SH_GB, (char)SH_FAST_CONNECTION, NULL);
         if (res == SH_ERR_INVALID_PARAMETER) {
             printf(" [PASS] Test 1: NULL connection pointer rejected\n");
             tests_passed++;
@@ -131,7 +127,7 @@ void run_edge_case_tests(void) {
     {
         shared_host_connection* conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
         memset(conn, 0, sizeof(shared_host_connection));
-        sh_result_t res = create_shared_host_connection("edge_test_basic", (char)SH_FAST_CONNECTION, conn);
+        sh_result_t res = create_shared_host_connection("edge_test_basic", 1 SH_GB, (char)SH_FAST_CONNECTION, conn);
         if (res == SH_OK) {
             printf(" [PASS] Test 2: Basic connection creation succeeded\n");
             tests_passed++;
@@ -152,7 +148,7 @@ void run_edge_case_tests(void) {
         memset(server, 0, sizeof(shared_host_connection));
         memset(client, 0, sizeof(shared_host_connection));
 
-        if (create_shared_host_connection("edge_test_1", (char)SH_FAST_CONNECTION, server) == SH_OK) {
+        if (create_shared_host_connection("edge_test_1", 1 SH_GB, (char)SH_FAST_CONNECTION, server) == SH_OK) {
             size_t size = 0;
             if (connect_to_shared_host_connection("edge_test_1", &size, client) == SH_OK) {
                 char payload[64] = {0xAA};
@@ -190,7 +186,7 @@ void run_edge_case_tests(void) {
     tests_total++;
     {
         shared_host_connection* conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
-        if (create_shared_host_connection("edge_test_null_write", (char)SH_FAST_CONNECTION, conn) == SH_OK) {
+        if (create_shared_host_connection("edge_test_null_write", 1 SH_GB, (char)SH_FAST_CONNECTION, conn) == SH_OK) {
             sh_result_t res = write_to_shared_host_connection(conn, NULL, 64);
             if (res == SH_ERR_INVALID_PARAMETER) {
                 printf(" [PASS] Test 4: NULL write buffer rejected\n");
@@ -257,7 +253,7 @@ void run_stress_tests(void) {
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "stress_conn_%d", i);
 
-            if (create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, server) != SH_OK) {
+            if (create_shared_host_connection(port_name, 1 SH_GB, (char)SH_FAST_CONNECTION, server) != SH_OK) {
                 failures++;
                 free(server);
                 free(client);
@@ -290,7 +286,7 @@ void run_stress_tests(void) {
         shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
         shared_host_connection* client = (shared_host_connection*)malloc(sizeof(shared_host_connection));
 
-        if (create_shared_host_connection("stress_throughput_conc", (char)SH_FAST_CONNECTION, server) == SH_OK) {
+        if (create_shared_host_connection("stress_throughput_conc", 1 SH_GB, (char)SH_FAST_CONNECTION, server) == SH_OK) {
             size_t size = 0;
             if (connect_to_shared_host_connection("stress_throughput_conc", &size, client) == SH_OK) {
                 stress_reader_params_t rparams;
@@ -361,7 +357,7 @@ void run_error_handling_tests(void) {
     {
         shared_host_connection* server = (shared_host_connection*)malloc(sizeof(shared_host_connection));
 
-        if (create_shared_host_connection("err_test_1", (char)SH_FAST_CONNECTION, server) == SH_OK) {
+        if (create_shared_host_connection("err_test_1", 1 SH_GB, (char)SH_FAST_CONNECTION, server) == SH_OK) {
             if (server->own_shared_connection_header->current_item_offset == server->own_shared_connection_header->last_item_offset) {
                 printf(" [PASS] Test 1: Empty connection correctly identified (no pending messages)\n");
                 tests_passed++;
@@ -379,7 +375,7 @@ void run_error_handling_tests(void) {
     {
         shared_host_connection* conn = (shared_host_connection*)malloc(sizeof(shared_host_connection));
 
-        if (create_shared_host_connection("err_test_2", (char)SH_FAST_CONNECTION, conn) == SH_OK) {
+        if (create_shared_host_connection("err_test_2", 1 SH_GB, (char)SH_FAST_CONNECTION, conn) == SH_OK) {
             char buf[16] = {0};
             sh_result_t res = write_to_shared_host_connection(conn, buf, 0);
             if (res == SH_ERR_INVALID_PARAMETER) {
@@ -423,7 +419,7 @@ void run_memory_safety_tests(void) {
             char port_name[64];
             snprintf(port_name, sizeof(port_name), "mem_seq_test_%d", i);
 
-            if (create_shared_host_connection(port_name, (char)SH_FAST_CONNECTION, server) == SH_OK) {
+            if (create_shared_host_connection(port_name, 1 SH_GB, (char)SH_FAST_CONNECTION, server) == SH_OK) {
                 size_t size = 0;
                 if (connect_to_shared_host_connection(port_name, &size, client) == SH_OK) {
                     char payload[64] = {0x77};
@@ -529,7 +525,7 @@ void run_concurrent_client_tests(void) {
         for (int i = 0; i < NUM_WORKERS; i++) {
             servers[i] = (shared_host_connection*)malloc(sizeof(shared_host_connection));
             snprintf(workers[i].port_name, sizeof(workers[i].port_name), "conc_port_%d", i);
-            if (create_shared_host_connection(workers[i].port_name, (char)SH_FAST_CONNECTION, servers[i]) != SH_OK) {
+            if (create_shared_host_connection(workers[i].port_name, 1 SH_GB, (char)SH_FAST_CONNECTION, servers[i]) != SH_OK) {
                 server_setup_ok = 0;
             }
             workers[i].thread_id = i + 1;
