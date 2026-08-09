@@ -191,6 +191,23 @@ if (server_conn.receive(&server_conn, &rx_buf, &rx_size) == SH_OK) {
 
 ---
 
+## Error Codes
+
+All `shared_host` functions return `sh_result_t` (defined in `shared_host.h`). Below are the possible error codes:
+
+| Error Code | Value | Description |
+| :--- | :--- | :--- |
+| `SH_OK` | `0` | Operation completed successfully |
+| `SH_ERR_PORT_IN_USE` | `-1` | **Create**: The specified port name is already in use by another connection |
+| `SH_ERR_OOM` | `-2` | **Create/Read**: Insufficient memory. During create: cannot allocate shared memory. During read: buffer copy caused OOM |
+| `SH_ERR_INVALID_PORT` | `-3` | **Create**: Invalid port name (e.g., empty string) |
+| `SH_ERR_MESSAGE_TOO_LONG` | `-4` | **Write**: Message size exceeds the maximum allowed payload size |
+| `SH_ERR_CONNECTION_CLOSED` | `-5` | **Write/Read/Connect**: Connection has been closed |
+| `SH_ERR_INVALID_PARAMETER` | `-6` | **Any**: NULL pointer, invalid buffer size, or other invalid parameters |
+| `SH_ERR_CONNECTION_OWNED` | `-7` | **Use**: Connection is currently owned by another thread |
+| `SH_ERR_CONNECTION_NOT_OWNED` | `-8` | **Disown**: Attempted to disown a connection that isn't owned by the caller |
+| `SH_ERR_UNKNOWN` | `-100` | Unknown error (catch-all for unexpected failures) |
+
 ## Repository Structure
 
 ```text
