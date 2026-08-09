@@ -43,8 +43,8 @@ typedef enum {
 } sh_connection_type;
 
 typedef struct shared_host_shared_connection_header {
-    size_t current_item_offset; // should be a atomic
-    size_t last_item_offset; // should be a atomic
+    size_t current_item_offset;
+    size_t last_item_offset;
 } shared_host_shared_connection_header;
 
 typedef struct shared_host_shared_settings_header {
@@ -78,30 +78,33 @@ typedef struct shared_host_connection {
 } shared_host_connection; // TODO: move this implementation to an internal header
 
 sh_result_t create_shared_host_connection(const char *port, size_t size, char flags, shared_host_connection *out_connection);
-
 sh_result_t connect_to_shared_host_connection(const char* port, size_t* size, shared_host_connection* out_connection);
 
 sh_result_t close_shared_host_connection(shared_host_connection* connection);
 
 sh_result_t write_to_shared_host_connection(shared_host_connection *connection, void *buffer, size_t buffer_size);
+sh_result_t read_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t *buffer_size);
+
+sh_result_t claim_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size);
+sh_result_t commit_to_shared_host_connection(shared_host_connection *connection);
+
+sh_result_t receive_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t *buffer_size);
+sh_result_t release_to_shared_host_connection(shared_host_connection *connection);
+
+
 sh_result_t write_to_shared_host_connection_fast(shared_host_connection *connection, void *buffer, size_t buffer_size);
 sh_result_t write_to_shared_host_connection_slow(shared_host_connection *connection, void *buffer, size_t buffer_size);
 
-sh_result_t read_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 sh_result_t read_from_shared_host_connection_fast(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 sh_result_t read_from_shared_host_connection_slow(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 
-sh_result_t claim_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t buffer_size);
 
-sh_result_t commit_to_shared_host_connection(shared_host_connection *connection);
 sh_result_t commit_to_shared_host_connection_fast(shared_host_connection *connection);
 sh_result_t commit_to_shared_host_connection_slow(shared_host_connection *connection);
 
-sh_result_t receive_from_shared_host_connection(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 sh_result_t receive_from_shared_host_connection_fast(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 sh_result_t receive_from_shared_host_connection_slow(shared_host_connection *connection, void **buffer, size_t *buffer_size);
 
-sh_result_t release_to_shared_host_connection(shared_host_connection *connection);
 sh_result_t release_to_shared_host_connection_fast(shared_host_connection *connection);
 sh_result_t release_to_shared_host_connection_slow(shared_host_connection *connection);
 
