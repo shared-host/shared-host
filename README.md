@@ -105,8 +105,10 @@ Basically a faster localhost-like communication method.
 
 ## Features
 
-- **Ultra-Low Latency**: Sub-50ns message delivery (**47.1 ns** average latency in Zero-Copy mode).
-- **High Throughput**: Exceeds **21.75 Million ops/sec** on 64B payloads and **12.64 GB/s** bandwidth on 64KB payloads.
+- **Ultra-Low Latency**: Sub-50ns message delivery (**46.9 ns** average latency in Zero-Copy mode).
+- **High Throughput**: Exceeds **22.06 Million ops/sec** on 64B payloads and **13.31 GB/s** bandwidth on 64KB payloads.
+- **Configurable Ring Buffer Sizes**: Custom shared memory buffer sizes per channel (e.g. `1 SH_GB`, `100 MB`, `1 MB`) passed directly to `create_shared_host_connection`.
+- **First-Class Zero-Copy Method Pointers**: Connection struct provides direct function pointers (`claim`, `commit`, `receive`, `release`, `read`, `write`) bound automatically upon connection creation.
 - **Zero-Copy Architecture**: Writer-side `claim`/`commit` and Reader-side `receive`/`release` eliminate heap allocations (`malloc`) and data copies (`memcpy`) on both ends.
 - **Zero Corruption Guarantee**: Includes boundary wrap validation and sequence tracking.
 - **Clean C API**: Supports both standard copy-based (`write`/`read`) and zero-copy (`claim`/`commit`/`receive`/`release`) interfaces.
@@ -149,18 +151,19 @@ Header file: `#include <shared_host.h>`
 #include <stdlib.h>
 #include <shared_host.h>
 
-// 1. Create a server host connection
+// 1. Create a server host connection with configurable ring buffer size (e.g., 1 GB or 10 MB)
 shared_host_connection server_conn;
-sh_result_t err = create_shared_host_connection("my_channel", SH_FAST_CONNECTION, &server_conn);
+sh_result_t err = create_shared_host_connection("my_channel", 1 SH_GB, SH_FAST_CONNECTION, &server_conn);
 
 // 2. Connect client to host
 shared_host_connection client_conn;
 size_t conn_size = 0;
 err = connect_to_shared_host_connection("my_channel", &conn_size, &client_conn);
 
-// 3. Write data from client
+// 3. Write data from client (using helper or direct struct method pointer client_conn.write)
 char data[] = "High speed IPC payload";
 write_to_shared_host_connection(&client_conn, data, sizeof(data));
+// Or: client_conn.write(&client_conn, data, sizeof(data));
 
 // 4. Read data on server
 void* read_buffer = NULL;
@@ -177,7 +180,7 @@ close_shared_host_connection(&client_conn);
 
 ### 2. Zero-Copy API (Direct Shared Memory Access - No Malloc / No Memcpy)
 
-The Zero-Copy API allows producers to claim ring buffer memory directly and consumers to read shared memory pointers without intermediate heap allocations or copies.
+The Zero-Copy API allows producers to claim ring buffer memory directly and consumers to read shared memory pointers without intermediate heap allocations or copies. Zero-copy function pointers (`claim`, `commit`, `receive`, `release`) are automatically attached to the `shared_host_connection` struct.
 
 ```c
 #include <stdio.h>
@@ -187,24 +190,24 @@ The Zero-Copy API allows producers to claim ring buffer memory directly and cons
 void *tx_buf = NULL;
 size_t payload_size = 256;
 
-if (claim_from_shared_host_connection(&client_conn, &tx_buf, payload_size) == SH_OK) {
+if (client_conn.claim(&client_conn, &tx_buf, payload_size) == SH_OK) {
     // Write directly into tx_buf (mapped shared memory ring buffer)
     snprintf((char*)tx_buf, payload_size, "Zero-Copy IPC Payload");
 
-    // Commit to make message visible to reader
-    commit_to_shared_host_connection(&client_conn);
+    // Commit to make message visible to reader (fast or event-signaled depending on connection flags)
+    client_conn.commit(&client_conn);
 }
 
 // Consumer / Reader: Receive zero-copy buffer & Release
 void *rx_buf = NULL;
 size_t rx_size = 0;
 
-if (receive_from_shared_host_connection(&server_conn, &rx_buf, &rx_size) == SH_OK) {
+if (server_conn.receive(&server_conn, &rx_buf, &rx_size) == SH_OK) {
     // Access rx_buf directly in shared memory without heap allocation
     printf("Received %zu bytes: %s\n", rx_size, (char*)rx_buf);
 
     // Release buffer to advance reader offset
-    release_to_shared_host_connection(&server_conn);
+    server_conn.release(&server_conn);
 }
 ```
 

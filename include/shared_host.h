@@ -77,7 +77,7 @@ typedef struct shared_host_connection {
     #endif
 } shared_host_connection; // TODO: move this implementation to an internal header
 
-sh_result_t create_shared_host_connection(const char *port, char flags, shared_host_connection *out_connection);
+sh_result_t create_shared_host_connection(const char *port, size_t size, char flags, shared_host_connection *out_connection);
 
 sh_result_t connect_to_shared_host_connection(const char* port, size_t* size, shared_host_connection* out_connection);
 
